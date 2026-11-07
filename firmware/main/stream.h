@@ -6,7 +6,8 @@
  *
  * The reply is an endless WAV: 16-bit mono PCM at MIC_RATE (32 kHz), DC removed, `gain` dB louder
  * (0..48, default STREAM_GAIN_DB). VLC, ffmpeg, OBS's media source and the agent can all read it.
- * At most STREAM_MAX listeners at once; a red dot on the middle screen shows while anyone listens.
+ * At most STREAM_MAX listeners at once. While anyone listens, the AUDIO screen reads MIC LIVE (or the
+ * middle screen shows MIC + a red dot when no AUDIO screen is showing). The mic_stream setting turns it off.
  */
 #include <stdint.h>
 #include "esp_err.h"

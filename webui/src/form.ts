@@ -39,6 +39,7 @@ export interface Draft {
   idle: boolean
   idle_min: number
   idle_brightness: number
+  mic_stream: boolean
 }
 
 export type DraftErrors = Partial<Record<keyof Draft, string>>
@@ -78,6 +79,7 @@ export function toDraft(s: DeviceSettings): Draft {
     idle: (s.idle_min ?? 10) > 0,
     idle_min: s.idle_min || 10,
     idle_brightness: s.idle_brightness ?? 10,
+    mic_stream: s.mic_stream ?? true,
   }
 }
 
@@ -112,6 +114,7 @@ export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'panels'
     world_tz: [d.w0tz.trim(), d.w1tz.trim()],
     idle_min: d.idle ? d.idle_min : 0,
     idle_brightness: d.idle_brightness,
+    mic_stream: d.mic_stream,
   }
 }
 

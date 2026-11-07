@@ -37,7 +37,8 @@ The order is a setting, and any screen can be turned off.
   - stay off.
 - **A Wi‑Fi microphone for your PC.** The stats agent can play the device's mic into a virtual
   audio cable, so Zoom, Discord or OBS can use it ([agent/README.md](agent/README.md#microphone)).
-  The middle screen shows a red **MIC ●** while it's on.
+  The AUDIO screen turns into a red **MIC LIVE** while it's on, and a switch on the settings page
+  turns the stream off.
 - **Low power when nobody's at the desk.** After a quiet spell with no one around (no sound, no
   buttons, no keyboard or mouse on the PC), the screens dim, the LEDs go off and the device slows
   down. Any sound wakes it. Day or night doesn't matter.
