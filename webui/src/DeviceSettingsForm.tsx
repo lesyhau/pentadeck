@@ -50,6 +50,7 @@ function DeckPreview({ layout }: { layout: string[] }) {
 export function DisplaySection({ draft, set, errors, panels }: FormProps) {
   const options = panels.map(p => ({ value: p, label: PANEL_NAMES[p] ?? p }))
   const screensId = useId()
+  const idleId = useId()
   const setNight = (on: boolean) => {
     // Turned on with no window yet: the usual night, ready to adjust.
     if (on && !draft.night_start && !draft.night_end) {
@@ -71,6 +72,29 @@ export function DisplaySection({ draft, set, errors, panels }: FormProps) {
               <Input label="Until" type="time" value={draft.night_end} onChange={e => set('night_end', e.target.value)} error={errors.night_end} />
             </div>
             <Slider label="Night brightness" value={draft.night_brightness} onChange={v => set('night_brightness', v)} format={pct} />
+          </div>
+        </Reveal>
+      </div>
+
+      <div>
+        <SwitchRow
+          title="Low power when nobody's at the desk"
+          caption="After a while with no sound, no buttons and no keyboard or mouse on the PC, the screens dim, the LEDs go off and the device slows down. Any sound wakes it."
+          checked={draft.idle}
+          onChange={v => set('idle', v)}
+        />
+        <Reveal show={draft.idle}>
+          <div className="space-y-6 pt-5">
+            <Field id={idleId} label="After">
+              <Select
+                id={idleId}
+                value={String(draft.idle_min)}
+                options={IDLE_AFTER.some(o => o.value === String(draft.idle_min)) ? IDLE_AFTER : [...IDLE_AFTER, { value: String(draft.idle_min), label: `${draft.idle_min} minutes` }]}
+                onChange={v => set('idle_min', Number(v))}
+                ariaLabel="Low power after"
+              />
+            </Field>
+            <Slider label="Low-power brightness" value={draft.idle_brightness} onChange={v => set('idle_brightness', v)} format={pct} />
           </div>
         </Reveal>
       </div>
@@ -140,6 +164,8 @@ export function LedSection({ draft, set, ledModes, onTest, onResume, busy, notic
 // -- Alerts ---------------------------------------------------------------------------------------
 
 /** The alarm's day sets: bit 0 = Monday .. bit 6 = Sunday (the device cycles through the same three). */
+const IDLE_AFTER = [2, 5, 10, 15, 20, 30, 45, 60, 90, 120].map(m => ({ value: String(m), label: `${m} minutes` }))
+
 const DAY_SETS = [
   { value: String(0x1f), label: 'Monday to Friday' },
   { value: String(0x60), label: 'Weekends' },

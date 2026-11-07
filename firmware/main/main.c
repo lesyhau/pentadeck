@@ -47,11 +47,13 @@
 #include "buttons.h"
 #include "netdata.h"
 #include "secrets.h"
+#include "power.h"
 #include "settings.h"
+#include "stream.h"
 #include "ui.h"
 #include "web.h"
 
-#define FW_VERSION      "0.14.0"
+#define FW_VERSION      "0.16.0"
 #define WIFI_FALLBACK_S 180   /* generous: the device sits at about -80 dBm */
 #define EV_GOT_IP       BIT0
 
@@ -437,8 +439,13 @@ static esp_err_t audio_get(httpd_req_t *req)
     for (int b = 0; b < MIC_BANDS; b++) {
         n += snprintf(buf + n, sizeof buf - n, "%s%.1f", b ? "," : "", m.bands[b]);
     }
-    n += snprintf(buf + n, sizeof buf - n, "],\"probe_dbfs\":[%.1f,%.1f,%.1f,%.1f]}\n",
-                  m.probe_dbfs[0], m.probe_dbfs[1], m.probe_dbfs[2], m.probe_dbfs[3]);
+    int rerr;
+    unsigned rfails, rgot;
+    mic_read_stats(&rerr, &rfails, &rgot);
+    n += snprintf(buf + n, sizeof buf - n, "],\"probe_dbfs\":[%.1f,%.1f,%.1f,%.1f],\"rate\":%d,"
+                  "\"read_err\":\"%s\",\"read_fails\":%u,\"fail_wait_ms\":%u}\n",
+                  m.probe_dbfs[0], m.probe_dbfs[1], m.probe_dbfs[2], m.probe_dbfs[3], mic_rate(),
+                  esp_err_to_name(rerr), rfails, rgot);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, n);
 }
@@ -578,6 +585,8 @@ void app_main(void)
     if (mic_err != ESP_OK) {
         ESP_LOGE(TAG, "mic start failed: %s", esp_err_to_name(mic_err));
     }
+    if (stream_start() != ESP_OK) ESP_LOGE(TAG, "mic stream start failed");
+    power_start();
     ledfx_start();
     if (tg_display_init() == ESP_OK) {
         esp_err_t ui_err = ui_start();

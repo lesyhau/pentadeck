@@ -17,12 +17,14 @@
 #include "esp_netif_sntp.h"
 #include "esp_timer.h"
 
+#include "power.h"
 #include "settings.h"
 
 static const char *TAG = "netdata";
 
 static SemaphoreHandle_t s_lock;
 static host_stats_t s_host[TG_SOURCES];
+static volatile int s_period_ms = 1000;  /* the agents' poll period now */
 static int64_t s_host_at[TG_SOURCES];     /* esp_timer time of the last good poll, us */
 static weather_t s_weather;
 static int64_t s_weather_at;
@@ -84,6 +86,8 @@ static bool parse_host(const char *json, host_stats_t *h)
     str(h->host, sizeof h->host, o, "host");
     str(h->os, sizeof h->os, o, "os");
     h->uptime_s = (uint32_t)u64(o, "uptime_s");
+    float idle = num(o, "input_idle_s");
+    h->input_idle_s = isnan(idle) || idle < 0 ? -1 : idle > 2e9f ? 2000000000 : (int32_t)idle;
     const cJSON *cpu = cJSON_GetObjectItem(o, "cpu");
     h->cpu_load = num(cpu, "load");
     h->cpu_temp = num(cpu, "temp");
@@ -152,8 +156,15 @@ static void agents_task(void *arg)
             }
         }
         int64_t spent_ms = (esp_timer_get_time() - t0) / 1000;
-        int wait = cfg.poll_ms - (int)spent_ms;
-        vTaskDelay(pdMS_TO_TICKS(wait > 50 ? wait : 50));
+        /* low power: every 5 s; waking up polls at once (data counts as live for 2.5 periods) */
+        int period = power_idle() && cfg.poll_ms < 5000 ? 5000 : cfg.poll_ms;
+        s_period_ms = period;
+        int wait = period - (int)spent_ms;
+        if (wait < 50) wait = 50;
+        for (int waited = 0; waited < wait; waited += 100) {
+            if (period > cfg.poll_ms && !power_idle()) break;
+            vTaskDelay(pdMS_TO_TICKS(wait - waited < 100 ? wait - waited : 100));
+        }
     }
 }
 
@@ -239,7 +250,8 @@ void netdata_get_host(int i, host_stats_t *out)
     int64_t at = s_host_at[i];
     xSemaphoreGive(s_lock);
     out->age_ms = at ? (esp_timer_get_time() - at) / 1000 : -1;
-    out->ok = out->ever && out->age_ms >= 0 && out->age_ms < 5000;
+    int64_t live = s_period_ms * 5 / 2 > 5000 ? s_period_ms * 5 / 2 : 5000;
+    out->ok = out->ever && out->age_ms >= 0 && out->age_ms < live;
 }
 
 void netdata_get_weather(weather_t *out)

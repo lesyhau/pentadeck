@@ -7,7 +7,7 @@
 #define HOST_MAX_SERVICES 6
 
 typedef struct {
-    bool ok;                  /* last poll succeeded and is recent (< 5 s) */
+    bool ok;                  /* last poll succeeded and is recent (< 5 s, or 2.5 poll periods) */
     bool ever;                /* we have received data at least once */
     int64_t age_ms;           /* time since the last good poll */
     char name[16], host[32], os[8];
@@ -33,6 +33,7 @@ typedef struct {
     int n_services;
     struct { char name[12]; bool up; float ms; } services[HOST_MAX_SERVICES];
     uint32_t uptime_s;
+    int32_t input_idle_s;     /* seconds since the last keyboard / mouse input on it, -1 if unknown */
 } host_stats_t;
 
 typedef struct {

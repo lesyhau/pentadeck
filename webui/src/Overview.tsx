@@ -96,7 +96,16 @@ export function Overview({ status, online }: { status: DeviceStatus | null; onli
       </div>
 
       <section aria-label="Device">
-        <HudHeading right={status && <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">Up {uptime(status.uptime_s)}</span>}>
+        <HudHeading
+          right={
+            status && (
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
+                Up {uptime(status.uptime_s)}
+                {status.power && (status.power.state === 'idle' ? ' · Low power' : ' · Full power')}
+              </span>
+            )
+          }
+        >
           Device
         </HudHeading>
         <StatGrid className="mt-3 lg:grid-cols-6">

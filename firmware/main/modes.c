@@ -11,6 +11,7 @@
 #include "app.h"
 #include "ledfx.h"
 #include "mic.h"
+#include "power.h"
 #include "mode_kit.h"
 #include "netdata.h"
 
@@ -19,6 +20,7 @@ tg_settings_t g_cfg;
 
 static ui_mode_t s_mode = MODE_DASH;
 static bool s_sleep;
+static btn_key_t s_swallow = KEY_NONE;    /* the button whose press woke the device from low power */
 static uint32_t s_boost_until;        /* LIGHT: full brightness until then */
 static char s_prev_led[8] = "status"; /* the LED mode a long LIGHT turns back on */
 static uint32_t s_save_at;            /* a pending save of g_cfg's in-place changes, 0 = none */
@@ -173,7 +175,7 @@ static void ring_end(bool snooze)
 
 /* ------------------------------------------------------------------ setup */
 
-#define SETUP_ITEMS 10
+#define SETUP_ITEMS 12
 static int s_sel;
 static bool s_edit;
 static tg_settings_t s_draft;
@@ -182,7 +184,8 @@ static const char *LED_MODES[] = { "off", "glow", "status", "music" };
 static const char *item_name(int i)
 {
     static const char *n[SETUP_ITEMS] = { "BRIGHTNESS", "NIGHT LEVEL", "LED MODE", "LED LEVEL", "VOLUME",
-                                          "ALERTS", "KEY BEEP", "QUIET NIGHT", "CLOCK", "DEVICE" };
+                                          "ALERTS", "KEY BEEP", "QUIET NIGHT", "LOW POWER", "IDLE LEVEL",
+                                          "CLOCK", "DEVICE" };
     return n[i];
 }
 
@@ -198,7 +201,9 @@ static void item_value(const tg_settings_t *s, int i, char *out, size_t n, float
     case 5: snprintf(out, n, "%s", s->buzzer ? "ON" : "OFF"); break;
     case 6: snprintf(out, n, "%s", s->key_beep ? "ON" : "OFF"); break;
     case 7: snprintf(out, n, "%s", s->quiet_night ? "ON" : "OFF"); break;
-    case 8: snprintf(out, n, "%s", s->hour24 ? "24H" : "12H"); break;
+    case 8: if (s->idle_min) snprintf(out, n, "%d MIN", s->idle_min); else snprintf(out, n, "OFF"); break;
+    case 9: snprintf(out, n, "%d%%", s->idle_brightness); *bar = s->idle_brightness / 100.0f; break;
+    case 10: snprintf(out, n, "%s", s->hour24 ? "24H" : "12H"); break;
     default: snprintf(out, n, "%s", app_fw_version()); break;
     }
 }
@@ -222,7 +227,15 @@ static void item_step(tg_settings_t *s, int i, int d)
     case 5: s->buzzer = !s->buzzer; break;
     case 6: s->key_beep = !s->key_beep; break;
     case 7: s->quiet_night = !s->quiet_night; break;
-    case 8: s->hour24 = !s->hour24; break;
+    case 8: {                                         /* off, 2 .. 120 minutes */
+        static const uint8_t m[] = { 0, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120 };
+        int k = 0, c = (int)(sizeof m / sizeof m[0]);
+        for (int j = 0; j < c; j++) if (m[j] <= s->idle_min) k = j;
+        s->idle_min = m[clampi(k + d, 0, c - 1)];
+        break;
+    }
+    case 9: s->idle_brightness = (uint8_t)clampi(s->idle_brightness + d * 5, 0, 100); break;
+    case 10: s->hour24 = !s->hour24; break;
     default: break;
     }
 }
@@ -258,6 +271,11 @@ static void setup_leave(void) { s_edit = false; }
 static void setup_draw(hud_fb_t *fb, int s)
 {
     int page = s_sel / 5, i = page * 5 + s;
+    if (i >= SETUP_ITEMS) {                       /* the last page isn't full */
+        static const char *k[5] = { "LIGHT", "PREV", "", "NEXT", "MODE" };
+        if (k[s][0]) mk_softkey(fb, k[s]);
+        return;
+    }
     bool sel = i == s_sel;
     const tg_settings_t *v = sel && s_edit ? &s_draft : &g_cfg;
     hud_header(fb, &font_b8, item_name(i), 12, 1, 0, 0, sel ? C_INK : C_LEGIBLE, sel ? C_HUD : C_HUD_DIM);
@@ -400,7 +418,22 @@ void modes_update(uint32_t ms)
     while (buttons_get(&e)) {
         if (s_sleep) {                       /* the press that wakes the device does nothing else */
             if (e.kind == BTN_DOWN && !e.repeat) s_sleep = false;
+            power_wake("button");
             continue;
+        }
+        if (power_idle()) {                  /* same from low power: the whole press is swallowed */
+            power_wake("button");
+            if (e.kind == BTN_DOWN && !e.repeat) s_swallow = e.key;
+            continue;
+        }
+        power_wake("button");
+        if (e.key == s_swallow) {            /* the rest of the press that woke us (its release, repeats) */
+            if (e.kind == BTN_DOWN && !e.repeat) {
+                s_swallow = KEY_NONE;        /* a new press: act on it */
+            } else {
+                if (e.kind != BTN_DOWN) s_swallow = KEY_NONE;
+                continue;
+            }
         }
         if (e.kind == BTN_DOWN && !e.repeat && g_cfg.key_beep && e.key != KEY_MODE && !s_ring.on) mk_beep(BZ_KEY);
         key(&e);
@@ -420,6 +453,7 @@ void modes_update(uint32_t ms)
     if (s_pair.ask && g_ms - s_pair.since > 60000) pair_answer(false);          /* nobody answered */
     if (!s_pair.ask && s_pair.id && g_ms - s_pair.since > 30000) s_pair.id = 0;  /* never collected */
     if (s_pair.ask && s_sleep) s_sleep = false;
+    if (s_pair.ask || s_ring.on) power_wake(s_ring.on ? "alarm" : "pairing");
     if (s_ring.on) {
         if (ms - s_ring.beep > 1300) {
             s_ring.beep = ms;
@@ -456,6 +490,7 @@ int modes_backlight(int base_pct)
 {
     if (s_sleep) return 0;
     if ((int32_t)(s_boost_until - g_ms) > 0 || s_ring.on) return 100;
+    if (power_idle()) return base_pct < g_cfg.idle_brightness ? base_pct : g_cfg.idle_brightness;
     if (s_save_at) {                         /* show a dashboard brightness change straight away */
         bool night = settings_is_night(&g_cfg, netdata_time_valid());
         return night ? g_cfg.night_brightness : g_cfg.brightness;

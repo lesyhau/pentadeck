@@ -29,6 +29,8 @@
 #include "modes.h"
 #include "netdata.h"
 #include "settings.h"
+#include "power.h"
+#include "stream.h"
 
 static const char *TAG = "ui";
 
@@ -549,6 +551,10 @@ static void render_screen(hud_fb_t *fb, int s)
         modes_draw(fb, s);
     }
     if (s == 2 && modes_toast_active()) modes_draw_toast(fb);
+    if (s == 2 && stream_listeners()) {          /* someone is listening to the mic: always shown */
+        hud_text(fb, 99, 14, "MIC", F.b7, C_DANGER, "rm", 1);
+        hud_circle(fb, 104.5f, 14.0f, 3.0f, C_DANGER);
+    }
 }
 
 esp_err_t ui_capture(int screen, uint16_t *out)
@@ -566,6 +572,7 @@ static void backlight_update(void)
     settings_get(&c);
     int base = settings_is_night(&c, s_time_ok) ? c.night_brightness : c.brightness;
     int pct = modes_backlight(base);
+    if (power_idle() && last >= 0 && pct < last - 4) pct = last - 4;    /* into low power: fade, ~5 s */
     if (pct != last) {
         last = pct;
         tg_backlight_set((uint8_t)(pct * 255 / 100));
@@ -584,18 +591,19 @@ int ui_stats_json(char *buf, int n)
 
 static void ui_task(void *arg)
 {
-    const TickType_t period = pdMS_TO_TICKS(33) ? pdMS_TO_TICKS(33) : 1;
     TickType_t last = xTaskGetTickCount();
     static uint32_t shown_hash[TG_SCREENS];      /* what each screen shows, for the modes' screens */
     ui_mode_t was_mode = MODE_DASH;
     bool was_asleep = false;
     for (int frame = 0;; frame++) {
         int64_t t0 = esp_timer_get_time();
+        bool idle = power_idle();
+        TickType_t period = pdMS_TO_TICKS(idle ? 250 : 33);       /* low power: 4 fps, else 30 */
         s_ms = (uint32_t)(t0 / 1000);
         snapshot();
         audio_update();
         modes_update(s_ms);
-        if (frame % 4 == 0 || modes_sleeping() != was_asleep) backlight_update();
+        if (frame % 4 == 0 || idle || modes_sleeping() != was_asleep) backlight_update();
         ui_mode_t mode = modes_current();
         bool asleep = modes_sleeping();
         if (mode != was_mode || asleep != was_asleep) {      /* everything gets drawn afresh */
@@ -636,6 +644,7 @@ static void ui_task(void *arg)
             panel_t *p = &s_panel[s];
             uint32_t k = content_key(p);
             if (s == 2 && modes_toast_active()) k = fnv(k, (uint32_t[]){ modes_toast_gen() }, sizeof(uint32_t));
+            if (s == 2) k = fnv(k, (uint32_t[]){ (uint32_t)stream_listeners() }, sizeof(uint32_t));
             int a = anim_step(p);
             if (k == p->key && a == p->anim) continue;
             p->key = k;

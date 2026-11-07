@@ -35,6 +35,12 @@ The order is a setting, and any screen can be turned off.
   - act as a music visualiser;
   - give a steady glow;
   - stay off.
+- **A Wi‑Fi microphone for your PC.** The stats agent can play the device's mic into a virtual
+  audio cable, so Zoom, Discord or OBS can use it ([agent/README.md](agent/README.md#microphone)).
+  The middle screen shows a red **MIC ●** while it's on.
+- **Low power when nobody's at the desk.** After a quiet spell with no one around (no sound, no
+  buttons, no keyboard or mouse on the PC), the screens dim, the LEDs go off and the device slows
+  down. Any sound wakes it. Day or night doesn't matter.
 - **Settings page.** A mobile‑first page served by the device on your LAN covers:
   - the layout, brightness and night dimming;
   - the LEDs and alerts;
@@ -94,10 +100,16 @@ The order is a setting, and any screen can be turned off.
 1. **Build:** see [firmware/README.md](firmware/README.md). You need ESP‑IDF 5.5, and a
    `main/secrets.h` with your Wi‑Fi details and an access token.
 2. **First install:** this is done over a serial adapter, once. See [docs/FLASHING.md](docs/FLASHING.md).
-3. **Run a stats agent** on each machine to watch (see [agent/README.md](agent/README.md)):
+3. **Install a stats agent** on each machine to watch (see [agent/README.md](agent/README.md)).
+   Windows: double‑click `agent/install-windows.cmd`, or in PowerShell:
    ```
-   python pentadeck_agent.py --name PC
+   irm https://raw.githubusercontent.com/lesyhau/pentadeck/main/agent/install-windows.ps1 | iex
    ```
+   Linux:
+   ```
+   curl -fsSL https://raw.githubusercontent.com/lesyhau/pentadeck/main/agent/install-linux.sh | sudo bash
+   ```
+   Each prints the URL to use in the next step.
 4. **Open the device's IP** in a browser. Enter the access token, then set the agents' URLs
    (`http://<machine>:8765/stats`), your time zone and your location.
 5. **Later updates:** upload the firmware from the settings page, or run

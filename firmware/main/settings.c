@@ -19,8 +19,8 @@
 static const char *TAG = "settings";
 #define NS      "tg"
 #define KEY     "cfg"
-#define VERSION 7                   /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
-                                       7 the modes' values */
+#define VERSION 8                   /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
+                                       7 the modes' values, 8 low power */
 
 typedef struct {
     uint32_t version;
@@ -70,6 +70,8 @@ static void defaults(tg_settings_t *s)
     s->tuner_a4 = 440;
     s->metro_bpm = 100;
     s->timer_min = 5;
+    s->idle_min = 10;
+    s->idle_brightness = 10;
 }
 
 static bool valid_panel(const char *p)
@@ -110,6 +112,8 @@ static esp_err_t validate(const tg_settings_t *s, char *err, int err_len)
     if (s->tuner_a4 < 430 || s->tuner_a4 > 450) FAIL("tuner A4 is 430..450 Hz");
     if (s->metro_bpm < 30 || s->metro_bpm > 240) FAIL("metronome is 30..240 BPM");
     if (s->timer_min < 1 || s->timer_min > 180) FAIL("timer is 1..180 min");
+    if (s->idle_min > 120) FAIL("low power after 0..120 min (0 = never)");
+    if (s->idle_brightness > 100) FAIL("low-power brightness is 0..100");
     for (int i = 0; i < 2; i++) {
         tz_t z;
         if (!s->world_name[i][0]) FAIL("world clock %d needs a name", i + 1);
@@ -144,6 +148,8 @@ esp_err_t settings_init(void)
             defaults(&s);
             if (st.version == VERSION && len == sizeof st) {
                 s = st.s;
+            } else if (st.version == 7 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, idle_min)) {
+                memcpy(&s, &st.s, offsetof(tg_settings_t, idle_min));
             } else if (st.version == 6 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, tuner_a4)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, tuner_a4));
             } else if (st.version == 5 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, world_name)) {
@@ -246,6 +252,8 @@ char *settings_to_json(void)
     cJSON_AddNumberToObject(o, "tuner_a4", s.tuner_a4);
     cJSON_AddNumberToObject(o, "metro_bpm", s.metro_bpm);
     cJSON_AddNumberToObject(o, "timer_min", s.timer_min);
+    cJSON_AddNumberToObject(o, "idle_min", s.idle_min);
+    cJSON_AddNumberToObject(o, "idle_brightness", s.idle_brightness);
     cJSON *wn = cJSON_AddArrayToObject(o, "world_names"), *wt = cJSON_AddArrayToObject(o, "world_tz");
     for (int i = 0; i < 2; i++) {
         cJSON_AddItemToArray(wn, cJSON_CreateString(s.world_name[i]));
@@ -308,6 +316,8 @@ esp_err_t settings_from_json(const char *json, char *err, int err_len)
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "tuner_a4"))) s.tuner_a4 = (uint16_t)v->valuedouble;
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "metro_bpm"))) s.metro_bpm = (uint16_t)v->valuedouble;
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "timer_min"))) s.timer_min = (uint16_t)v->valuedouble;
+    if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "idle_min"))) s.idle_min = (uint8_t)(v->valuedouble > 255 ? 255 : v->valuedouble < 0 ? 0 : v->valuedouble);
+    if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "idle_brightness"))) s.idle_brightness = (uint8_t)(v->valuedouble > 255 ? 255 : v->valuedouble < 0 ? 0 : v->valuedouble);
     if (cJSON_IsArray(v = cJSON_GetObjectItem(o, "world_names"))) {
         for (int i = 0; i < 2; i++) copy_str(s.world_name[i], sizeof s.world_name[i], cJSON_GetArrayItem(v, i));
     }
