@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
-import { prePaintScript } from './src/appearance'
+import { prePaintScript } from './src/lib/appearance'
 
 /** Where the dev server sends /api, /status, /reboot and /ota: your Pentadeck on the LAN. */
 const DEVICE = process.env.PENTADECK_URL || 'http://pentadeck.local'

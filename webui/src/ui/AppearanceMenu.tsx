@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { Appearance } from '../appearance'
+import type { Appearance } from '../lib/appearance'
 import { cn } from './cn'
 import { CheckIcon, MonitorIcon, MoonIcon, SunIcon } from './icons'
 

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { APPEARANCE_KEY, DEFAULT_APPEARANCE, THEME_COLORS, isAppearance, type Appearance, type Theme } from '../appearance'
+import { APPEARANCE_KEY, DEFAULT_APPEARANCE, THEME_COLORS, isAppearance, type Appearance, type Theme } from '../lib/appearance'
 
 /**
  * The appearance choice for this browser, as a tiny store: read once, written on change, applied
