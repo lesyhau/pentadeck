@@ -43,7 +43,7 @@ static void sm_update(void)
     sm_sum += powf(10.0f, db / 10.0f);
     sm_n++;
     for (int b = 0; b < MIC_BANDS; b++) {
-        float f = clamp01((m.bands[b] + 90.0f) / 65.0f);
+        float f = clamp01((m.bands[b] - MIC_BAND_FLOOR_DB) / (MIC_BAND_TOP_DB - MIC_BAND_FLOOR_DB));
         sm_band[b] = f > sm_band[b] ? f : fmaxf(0, sm_band[b] - 0.04f);
         sm_peak[b] = sm_band[b] > sm_peak[b] ? sm_band[b] : fmaxf(0, sm_peak[b] - 0.006f);
     }

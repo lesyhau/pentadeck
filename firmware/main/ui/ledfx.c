@@ -161,7 +161,7 @@ static void music(const mic_snapshot_t *m)
         int b0 = (int)pos;
         int b1 = b0 + 1 < MIC_BANDS ? b0 + 1 : b0;
         float db = m->bands[b0] + (m->bands[b1] - m->bands[b0]) * (pos - b0);
-        float f = clamp01((db + 90.0f) / 65.0f);
+        float f = clamp01((db - MIC_BAND_FLOOR_DB) / (MIC_BAND_TOP_DB - MIC_BAND_FLOOR_DB));
         s_band[i] = f > s_band[i] ? f : fmaxf(0, s_band[i] - 0.05f);
         s_px[LED_BACK0 + i] = scale(mix(TEAL, 0x8040FF, (float)i / (LED_STRIP - 1)), s_band[i] * s_band[i]);
     }

@@ -385,13 +385,10 @@ static void draw_lab(hud_fb_t *l)
 
 /* ---------------------------------------------------------------- AUDIO */
 
-#define DB_FLOOR (-90.0f)
-#define DB_TOP   (-25.0f)
-
 static void audio_update(void)       /* fast attack, slow release, falling peak caps */
 {
     for (int b = 0; b < MIC_BANDS; b++) {
-        float f = clamp01((s_m.bands[b] - DB_FLOOR) / (DB_TOP - DB_FLOOR));
+        float f = clamp01((s_m.bands[b] - MIC_BAND_FLOOR_DB) / (MIC_BAND_TOP_DB - MIC_BAND_FLOOR_DB));
         s_eq[b] = f > s_eq[b] ? f : fmaxf(0, s_eq[b] - 0.035f);
         s_peak[b] = s_eq[b] > s_peak[b] ? s_eq[b] : fmaxf(0, s_peak[b] - 0.008f);
     }

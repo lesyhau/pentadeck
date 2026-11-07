@@ -1,7 +1,9 @@
 #pragma once
 /*
- * PDM microphone on the buttons board: CLK = GPIO19, DATA = GPIO20 (the chip's USB pins),
- * I2S0 in PDM RX mode, 32 kHz, 16-bit mono (left), as in the stock firmware.
+ * The microphone on the buttons board, on the chip's USB pins, 32 kHz mono, as in the stock firmware.
+ * Two boards exist and mic_start() probes which is fitted (docs/HARDWARE.md): a standard I2S MEMS mic
+ * (BCK GPIO19, WS GPIO3, DATA GPIO20, 32-bit, left slot: the one seen so far) or a PDM one
+ * (CLK GPIO19, DATA GPIO20, 16-bit).
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -10,12 +12,16 @@
 #define MIC_BANDS 16
 #define MIC_RATE  32000           /* samples per second */
 
+/* The band levels the spectrum displays span, bottom to top (the AUDIO screen, SOUND mode, the LEDs) */
+#define MIC_BAND_FLOOR_DB (-90.0f)
+#define MIC_BAND_TOP_DB   (-25.0f)
+
 typedef struct {
     float dbfs;               /* loudness of the last block, dB full scale (RMS), about -90..0 */
     float dba;                /* A-weighted sound level of the last block, dB SPL. Assumes the usual MEMS
                                  sensitivity (-26 dBFS at 94 dB SPL), so SPL = dBFS + 120; not calibrated */
     float peak_dbfs;          /* loudest sample of the last block */
-    float bands[MIC_BANDS];   /* spectrum, dB, 50 Hz .. 12 kHz, log spaced */
+    float bands[MIC_BANDS];   /* spectrum, dB, 50 Hz .. 12 kHz, log spaced: each band's total power */
     unsigned blocks;          /* blocks processed so far */
     const char *mode;         /* which mic wiring was detected */
     float probe_dbfs[4];      /* signal level seen while probing i2s-left, i2s-right, pdm-left, pdm-right */

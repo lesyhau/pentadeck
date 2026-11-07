@@ -403,8 +403,10 @@ static void analyse(float rms)
         for (int k = s_band_lo[b]; k < s_band_hi[b]; k++) {
             p += s_re[k] * s_re[k] + s_im[k] * s_im[k];
         }
-        /* average power per bin, scaled so a full-scale sine lands near 0 dB */
-        p = p / (s_band_hi[b] - s_band_lo[b]) * 16.0f / ((float)N * N);
+        /* the band's total power (not the mean per bin: the bands widen with frequency, from 1 bin
+         * to 111, and a mean would show the top ones up to 20 dB low), scaled so a full-scale sine
+         * lands near 0 dB. Pink noise (equal energy per octave) reads level across the bands. */
+        p *= 16.0f / ((float)N * N);
         snap.bands[b] = 10.0f * log10f(p + 1e-12f);
     }
     if (s_tempo) onsets_update();
