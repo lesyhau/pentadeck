@@ -16,7 +16,7 @@ An ESP‑IDF 5.5 project for the Divoom Times Gate: an ESP32‑S3 with 8 MB flas
    idf.py set-target esp32s3      # once
    idf.py build
    ```
-   The output is `build/pentadeck.bin`.
+   The output is `build/pentadeck.bin`, with a copy in `build/bin/pentadeck.bin`.
 
 The settings page is built separately (see [../webui](../webui/README.md)) into
 `main/web/index.html.gz`, which is committed, so a firmware build doesn't need Node.
@@ -26,7 +26,7 @@ The settings page is built separately (see [../webui](../webui/README.md)) into
 The first install is done over a serial adapter, once. After that, updates go over Wi‑Fi:
 ```
 python tools/push.py <device-ip> status
-python tools/push.py <device-ip> ota build/pentadeck.bin
+python tools/push.py <device-ip> ota build/bin/pentadeck.bin
 ```
 You can also upload `pentadeck.bin` from the settings page (Firmware card).
 See [../docs/FLASHING.md](../docs/FLASHING.md) for the full procedure, and for how to go back to the

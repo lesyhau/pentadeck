@@ -415,7 +415,8 @@ static void wc_clock(hud_fb_t *fb, int place, const char *name, time_t utc, int 
     struct tm tm;
     int off = wc_local(place, utc, &tm);
     char t[24];
-    hud_header(fb, &font_b9, name, 12, 2, 0, 0, home ? C_INK : C_LEGIBLE, home ? C_HUD : C_HUD_DIM);
+    /* home is on the middle screen, whose header is the clock (modes_draw); its footer says HOME */
+    if (!home) hud_header(fb, &font_b9, name, 12, 2, 0, 0, C_LEGIBLE, C_HUD_DIM);
     bool day = tm.tm_hour >= 6 && tm.tm_hour < 18;
     hud_image(fb, day ? &img_icon_clear_day : &img_icon_clear_night, 64 - 11, 23);
     strftime(t, sizeof t, g_cfg.hour24 ? "%H:%M" : "%I:%M", &tm);

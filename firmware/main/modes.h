@@ -10,8 +10,9 @@
  *   TEMPO     finds the beat of the music it hears (and flashes it). Power: tap the tempo (taps are
  *             held). Left: hold what was heard / release a hold. Right: octave (1x, 2x, 1/2x).
  *             The metronome starts from the tempo held or found here.
- *   CHORDS    names the chord being played, the song's key (with its key signature) and the flute
- *             to pick: the major key sharing the song's notes. Power: new song. Left: hold.
+ *   CHORDS    names the chord being played and the song's key the way a dizi is marked ("1 = Bb":
+ *             the major scale sharing the song's notes), with the dizi's notes in that key and the
+ *             pitch classes heard. Power: new song. Left: hold.
  *   METRO     metronome. Left / right: tempo. Power: start / stop.
  *   CHRONO    stopwatch. Power: start / stop. Left: lap while running, reset while stopped.
  *   TIMER     countdown. Left / right: minutes. Power: start / pause. Left while paused: reset.
