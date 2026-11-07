@@ -16,8 +16,11 @@
 
 #include "app.h"
 #include "mic.h"
+#include "settings.h"
 
 static const char *TAG = "stream";
+
+static bool stream_enabled(void);
 
 #define RING  32768            /* samples kept: 1.02 s at 32 kHz (a power of two) */
 #define CHUNK 512              /* samples per send: 16 ms */
@@ -104,9 +107,14 @@ static void client_task(void *arg)
 
     int16_t buf[CHUNK];
     uint32_t pos = __atomic_load_n(&s_written, __ATOMIC_ACQUIRE);   /* from the next block on */
+    uint32_t gen = settings_generation();
     int idle = 0;
     bool ok = send_all(c.fd, head, sizeof head - 1) && send_all(c.fd, wav, sizeof wav);
     while (ok) {
+        if (settings_generation() != gen) {     /* turned off in the settings: cut the listener off */
+            gen = settings_generation();
+            if (!stream_enabled()) break;
+        }
         uint32_t w = __atomic_load_n(&s_written, __ATOMIC_ACQUIRE);
         uint32_t avail = w - pos;
         if (avail > RING - 4 * CHUNK) {        /* fell behind (a slow network): skip to now */
@@ -193,6 +201,13 @@ static bool token_ok(const char *t)
     return diff == 0;
 }
 
+static bool stream_enabled(void)
+{
+    tg_settings_t s;
+    settings_get(&s);
+    return s.mic_stream;
+}
+
 static void handle(int fd, const struct sockaddr_in *peer)
 {
     struct timeval rt = { .tv_sec = 3 }, st = { .tv_sec = 5 };
@@ -222,6 +237,11 @@ static void handle(int fd, const struct sockaddr_in *peer)
     if (!header_value(req, "X-Token", tok, sizeof tok)) httpd_query_key_value(query, "token", tok, sizeof tok);
     if (!token_ok(tok)) {
         reply(fd, "403 Forbidden", "missing or wrong token (X-Token header or ?token=)\n");
+        close(fd);
+        return;
+    }
+    if (!stream_enabled()) {
+        reply(fd, "503 Service Unavailable", "the mic stream is turned off in the device's settings\n");
         close(fd);
         return;
     }

@@ -68,6 +68,8 @@ export interface DeviceSettings {
   /** Minutes without a sign of anyone before low power, 0 = never (firmware 0.16+). */
   idle_min?: number
   idle_brightness?: number
+  /** PCs may stream the mic over Wi-Fi (firmware 0.17+). */
+  mic_stream?: boolean
   led_modes?: string[]
   panels?: string[]
 }

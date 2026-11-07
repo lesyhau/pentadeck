@@ -185,6 +185,19 @@ const SOUNDS = [
   { value: '12', label: 'Hourly chime' },
 ]
 
+export function MicSection({ draft, set }: FormProps) {
+  return (
+    <Card title="Microphone" caption="The device's mic as a microphone on your PC, over Wi-Fi.">
+      <SwitchRow
+        title="Let PCs use the mic"
+        caption="A PC with the agent's mic option (and the token) can stream it; the AUDIO screen shows MIC LIVE while one does. Off cuts any stream at once. The equaliser, tuner and the low-power wake-up keep using the mic either way."
+        checked={draft.mic_stream}
+        onChange={v => set('mic_stream', v)}
+      />
+    </Card>
+  )
+}
+
 export function SoundsSection({ draft, set, errors, onBeep, busy, notice }: FormProps & {
   onBeep: (pattern: number) => void
   busy: boolean

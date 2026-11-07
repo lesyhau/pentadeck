@@ -404,7 +404,10 @@ static void audio_update(void)       /* fast attack, slow release, falling peak 
 static void draw_audio(hud_fb_t *l)
 {
     hud_frame(l, C_HUD, C_P900, s_ms / 500);
-    hud_header(l, F.b9, "AUDIO", 12, 2, led_side(mic_ok(), 'l'), C_DANGER, C_LEGIBLE, C_HUD_DIM);
+    /* a PC is streaming the mic: the header says so, in red (stream.c) */
+    bool live = stream_listeners() > 0;
+    hud_header(l, F.b9, live ? "MIC LIVE" : "AUDIO", 12, 2, live ? 'r' : led_side(mic_ok(), 'l'), C_DANGER,
+               live ? C_DANGER : C_LEGIBLE, C_HUD_DIM);
     /* 16 columns of 18 cells (6x3, 1 px apart). Each column is drawn as a few colour blocks
      * (teal / amber / red / unlit / peak cap), then the gaps between rows are cut with 17 black
      * lines across the whole grid: ~100 rectangles a frame instead of 288. */
@@ -540,6 +543,14 @@ static void stats_roll(void)
     S.window_start = now;
 }
 
+/* The AUDIO panel is on a screen right now (it then shows when the mic is streamed). */
+static bool audio_shown(void)
+{
+    if (modes_current() != MODE_DASH) return false;
+    for (int s = 0; s < TG_SCREENS; s++) if (s_panel[s].kind == P_AUDIO) return true;
+    return false;
+}
+
 /* One screen as it should look now: the dashboard panel or the mode's screen, and the toast on
  * the middle screen. */
 static void render_screen(hud_fb_t *fb, int s)
@@ -551,9 +562,10 @@ static void render_screen(hud_fb_t *fb, int s)
         modes_draw(fb, s);
     }
     if (s == 2 && modes_toast_active()) modes_draw_toast(fb);
-    if (s == 2 && stream_listeners()) {          /* someone is listening to the mic: always shown */
-        hud_text(fb, 99, 14, "MIC", F.b7, C_DANGER, "rm", 1);
-        hud_circle(fb, 104.5f, 14.0f, 3.0f, C_DANGER);
+    if (s == 2 && stream_listeners() && !audio_shown()) {   /* the mic is streamed and no AUDIO screen says so */
+        /* just under the header on the right: clear on the clock and on every mode's middle screen */
+        hud_text(fb, 110, 24, "MIC", F.b7, C_DANGER, "rm", 1);
+        hud_circle(fb, 115.5f, 24.0f, 3.0f, C_DANGER);
     }
 }
 

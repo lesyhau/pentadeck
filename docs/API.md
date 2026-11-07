@@ -42,6 +42,7 @@ The device serves everything on port 80, except the microphone stream (port 8081
   "chime": false, "alarm_on": true, "alarm_time": "07:00", "alarm_days": 31,
   "tuner_a4": 440, "metro_bpm": 100, "timer_min": 5,
   "idle_min": 10, "idle_brightness": 10,
+  "mic_stream": true,
   "world_names": ["LONDON", "NEW YORK"], "world_tz": ["GMT0BST,M3.5.0/1,M10.5.0", "EST5EDT,M3.2.0,M11.1.0"]
 }
 ```
@@ -57,6 +58,7 @@ The device serves everything on port 80, except the microphone stream (port 8081
 | `world_names`, `world_tz` | the World mode's two other places: a name (up to 15 letters) and a POSIX time zone each. Daylight saving works with the `Mm.w.d` rules. |
 | `tuner_a4`, `metro_bpm`, `timer_min` | what the tuner, metronome and timer were left at (saved 2.5 s after the last button press) |
 | `idle_min` | low power after this many minutes with no sign of anyone (no sound above the room's background, no button, no keyboard or mouse on a PC whose agent reports `input_idle_s`), 0..120; 0 = never. Day or night doesn't matter. See [Low power](#low-power). |
+| `mic_stream` | PCs may stream the mic (port 8081). Off refuses new streams and cuts open ones; the device's own uses of the mic (equaliser, tuner, low‑power wake‑up) carry on |
 | `idle_brightness` | the screens' level in low power, 0..100 % (never brighter than the normal or night level) |
 | `alarm_days` | which days the alarm rings: bit 0 = Monday … bit 6 = Sunday (31 = weekdays, 96 = weekends, 127 = every day) |
 
@@ -71,8 +73,10 @@ The device serves everything on port 80, except the microphone stream (port 8081
 | `gain=0..48` | dB of gain (default 30: normal speech at a metre then peaks around −20 dBFS) |
 | `token=…` | the access token, if not sent as `X-Token` |
 
-At most two listeners at once (a third gets `503`). While anyone listens, the middle screen shows a
-red **MIC ●**. Audio arrives in 32 ms blocks, so it lags the room by about 50 ms before the network.
+At most two listeners at once (a third gets `503`). While anyone listens, the AUDIO screen's title
+turns into a red **MIC LIVE**; when no AUDIO screen is showing (a mode, or AUDIO off in the layout),
+the middle screen shows a red **MIC ●** instead. With the `mic_stream` setting off, the stream answers
+`503` and anyone listening is cut off. Audio arrives in 32 ms blocks, so it lags the room by about 50 ms before the network.
 
 - **As a Windows microphone:** run the stats agent with `--mic` (see [agent/README.md](../agent/README.md#microphone)).
 - **VLC / OBS (Media Source) / ffplay:** open `http://<device>:8081/?token=…`.

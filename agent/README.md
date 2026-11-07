@@ -149,7 +149,9 @@ audio (its USB pins are wired to the mic), so the sound comes over Wi‑Fi.
 | `--mic-out` | the playback device to play into, matched by name (e.g. `"CABLE-B Input"`) | `CABLE Input`, else the first `CABLE-x Input` (VB‑Audio's A+B pack) |
 
 - The delay is about 150–200 ms (Wi‑Fi, a 60 ms buffer, Windows' mixer): fine for calls and recording.
-- The device shows a red **MIC ●** on its middle screen while the stream is open.
+- The device's AUDIO screen shows a red **MIC LIVE** while the stream is open (the middle screen
+  shows **MIC ●** when the AUDIO screen isn't showing).
+- The settings page's Microphone card can turn the stream off; the agent then waits and retries.
 - If the device or Wi‑Fi drops, the agent plays silence and reconnects by itself.
 - Too quiet or too loud: change `--mic-gain` (each 6 dB doubles or halves the level).
 - Linux: there's no `--mic`; the stream is a plain WAV over HTTP that ffmpeg, VLC or OBS can read.

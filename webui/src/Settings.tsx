@@ -1,5 +1,5 @@
 import { Button, Card, Notice, PageTitle, Skeleton, type Note } from './ui'
-import { DataSection, DisplaySection, LedSection, SoundsSection, WorldSection } from './DeviceSettingsForm'
+import { DataSection, DisplaySection, LedSection, MicSection, SoundsSection, WorldSection } from './DeviceSettingsForm'
 import type { Settings } from './useSettings'
 
 const DEFAULT_LED_MODES = ['off', 'glow', 'status', 'music']
@@ -41,6 +41,7 @@ export function SettingsPage({ settings, onTestLeds, onResumeLeds, ledBusy, onBe
           <div className="space-y-4 sm:space-y-6">
             <DisplaySection {...form} />
             <LedSection {...form} onTest={onTestLeds} onResume={onResumeLeds} busy={ledBusy} notice={notices.leds} />
+            <MicSection {...form} />
           </div>
           <div className="space-y-4 sm:space-y-6">
             <SoundsSection {...form} onBeep={onBeep} busy={beeping} notice={notices.sounds} />

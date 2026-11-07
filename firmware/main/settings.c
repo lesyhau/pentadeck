@@ -19,8 +19,8 @@
 static const char *TAG = "settings";
 #define NS      "tg"
 #define KEY     "cfg"
-#define VERSION 8                   /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
-                                       7 the modes' values, 8 low power */
+#define VERSION 9                   /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
+                                       7 the modes' values, 8 low power, 9 the mic stream switch */
 
 typedef struct {
     uint32_t version;
@@ -72,6 +72,7 @@ static void defaults(tg_settings_t *s)
     s->timer_min = 5;
     s->idle_min = 10;
     s->idle_brightness = 10;
+    s->mic_stream = true;
 }
 
 static bool valid_panel(const char *p)
@@ -148,6 +149,8 @@ esp_err_t settings_init(void)
             defaults(&s);
             if (st.version == VERSION && len == sizeof st) {
                 s = st.s;
+            } else if (st.version == 8 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, mic_stream)) {
+                memcpy(&s, &st.s, offsetof(tg_settings_t, mic_stream));
             } else if (st.version == 7 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, idle_min)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, idle_min));
             } else if (st.version == 6 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, tuner_a4)) {
@@ -254,6 +257,7 @@ char *settings_to_json(void)
     cJSON_AddNumberToObject(o, "timer_min", s.timer_min);
     cJSON_AddNumberToObject(o, "idle_min", s.idle_min);
     cJSON_AddNumberToObject(o, "idle_brightness", s.idle_brightness);
+    cJSON_AddBoolToObject(o, "mic_stream", s.mic_stream);
     cJSON *wn = cJSON_AddArrayToObject(o, "world_names"), *wt = cJSON_AddArrayToObject(o, "world_tz");
     for (int i = 0; i < 2; i++) {
         cJSON_AddItemToArray(wn, cJSON_CreateString(s.world_name[i]));
@@ -317,6 +321,7 @@ esp_err_t settings_from_json(const char *json, char *err, int err_len)
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "metro_bpm"))) s.metro_bpm = (uint16_t)v->valuedouble;
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "timer_min"))) s.timer_min = (uint16_t)v->valuedouble;
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "idle_min"))) s.idle_min = (uint8_t)(v->valuedouble > 255 ? 255 : v->valuedouble < 0 ? 0 : v->valuedouble);
+    if (cJSON_IsBool(v = cJSON_GetObjectItem(o, "mic_stream"))) s.mic_stream = cJSON_IsTrue(v);
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "idle_brightness"))) s.idle_brightness = (uint8_t)(v->valuedouble > 255 ? 255 : v->valuedouble < 0 ? 0 : v->valuedouble);
     if (cJSON_IsArray(v = cJSON_GetObjectItem(o, "world_names"))) {
         for (int i = 0; i < 2; i++) copy_str(s.world_name[i], sizeof s.world_name[i], cJSON_GetArrayItem(v, i));
