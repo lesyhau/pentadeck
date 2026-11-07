@@ -42,6 +42,8 @@ original firmware.
 | `main/ui.c` | the cockpit panels and the 30 fps render loop |
 | `main/netdata.c` | polls the stats agents; SNTP time; Open‑Meteo weather |
 | `main/mic.c` | I2S microphone: FFT, the equaliser bands, A‑weighted level |
+| `main/power.c` | low power when nobody is at the desk: watches for signs of someone, and slows the screens, LEDs, mic, Wi‑Fi, polling and CPU |
+| `main/stream.c` | the microphone as a live WAV stream on port 8081, for a PC to use as a mic |
 | `main/leds.c`, `main/ledfx.c` | the WS2812 chain (RMT with DMA) and its effects; the buttons‑board LEDs |
 | `main/buzzer.c`, `main/alerts.c` | alert sounds, and when to play them |
 | `main/settings.c` | settings in NVS (namespace `tg`), JSON in and out, validation |

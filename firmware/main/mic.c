@@ -14,6 +14,8 @@
 #include "esp_timer.h"
 #include "hal/usb_serial_jtag_ll.h"
 
+#include "stream.h"
+
 static const char *TAG = "mic";
 
 /* The stock firmware supports two mic boards (it probes which one is fitted):
@@ -23,7 +25,7 @@ static const char *TAG = "mic";
 #define PIN_CLK  19
 #define PIN_WS   3
 #define PIN_DATA 20
-#define RATE     32000
+#define RATE     MIC_RATE
 #define N        1024            /* FFT size: 32 ms per block, 31.25 Hz per bin */
 #define F_LO     50.0f
 #define F_HI     12000.0f
@@ -33,6 +35,9 @@ static const char *MODE_NAMES[MODE_COUNT] = { "i2s-left", "i2s-right", "pdm-left
 
 static i2s_chan_handle_t s_rx;
 static mic_mode_t s_mode;
+static int s_rate = RATE;          /* the clock now: RATE, or RATE / LOW_DIV in low power */
+#define LOW_DIV 4                  /* low power: 8 kHz, and only the level (no spectrum, no pitch) */
+static volatile bool s_low_req;
 static bool s_ok;
 static mic_snapshot_t s_snap;
 static float s_probe[MODE_COUNT] = { -999, -999, -999, -999 };
@@ -374,9 +379,8 @@ static float block_std(void)
     return sqrtf(sum2 / N);
 }
 
-static void analyse(void)
+static void analyse(float rms)
 {
-    float rms = block_std();
     float peak = 0;
     for (int i = 0; i < N; i++) {
         if (fabsf(s_x[i]) > peak) peak = fabsf(s_x[i]);
@@ -430,6 +434,78 @@ static void analyse(void)
     portEXIT_CRITICAL(&s_mux);
 }
 
+/* ---------------------------------------------------------------- presence */
+
+/* Someone is about: sound clearly above the room's own background. The background is the quietest
+ * block of each second, the lowest of the last 30 s, so a fan or an air conditioner that keeps going
+ * soon counts as background. A block counts as activity when it is PRES_DB above that; three of them
+ * within 5 s (not one click) mark presence. */
+#define PRES_DB     10.0f
+#define PRES_SECS   30
+typedef struct {                       /* one per capture rate: the level reads differently at each */
+    float sec_min, mins[PRES_SECS], floor;
+    int mins_n, mins_w;
+    uint32_t sec_start, seen;          /* ms: this second began; the last block at this rate */
+} background_t;
+static background_t s_bg[2] = { { .floor = NAN }, { .floor = NAN } };
+static uint32_t s_act[3];
+static int s_act_w;
+static volatile uint32_t s_presence_ms;
+static volatile float s_floor = NAN;
+
+static void presence_update(float db)
+{
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    background_t *b = &s_bg[s_rate != RATE];
+    if (b->seen && now - b->seen > 120000) {           /* last measured long ago: start afresh */
+        b->mins_n = b->mins_w = 0;
+        b->floor = NAN;
+    }
+    if (!b->seen || now - b->seen > 2000) {             /* (re)starting at this rate: a fresh second */
+        b->sec_start = now;
+        b->sec_min = 0;
+        memset(s_act, 0, sizeof s_act);
+    }
+    b->seen = now;
+    if (db < b->sec_min) b->sec_min = db;
+    if (now - b->sec_start >= 1000) {
+        b->sec_start = now;
+        b->mins[b->mins_w] = b->sec_min;
+        b->mins_w = (b->mins_w + 1) % PRES_SECS;
+        if (b->mins_n < PRES_SECS) b->mins_n++;
+        b->sec_min = 0;
+        float f = 0;
+        for (int i = 0; i < b->mins_n; i++) if (i == 0 || b->mins[i] < f) f = b->mins[i];
+        b->floor = f;
+    }
+    s_floor = b->floor;
+    if (isnan(b->floor) || db < b->floor + PRES_DB) return;
+    s_act[s_act_w] = now;
+    s_act_w = (s_act_w + 1) % 3;
+    uint32_t oldest = s_act[s_act_w];                  /* the third-last active block */
+    if (oldest && now - oldest <= 5000) s_presence_ms = now ? now : 1;
+}
+
+uint32_t mic_presence_ms(void)
+{
+    return s_presence_ms;
+}
+
+float mic_floor_db(void)
+{
+    return s_floor;
+}
+
+void mic_low_power(bool on)
+{
+    s_low_req = on;
+}
+
+int mic_rate(void)
+{
+    return s_rate;
+}
+
 /* ----------------------------------------------------------------- capture */
 
 /* GPIO19/20 are the chip's USB D-/D+. After reset the USB PHY owns the pads and holds a ~1.5 kOhm
@@ -466,7 +542,7 @@ static esp_err_t open_mode(mic_mode_t mode)
     }
     if (mode == MODE_I2S_LEFT || mode == MODE_I2S_RIGHT) {
         i2s_std_config_t cfg = {
-            .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(RATE),
+            .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(s_rate),
             .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO),
             .gpio_cfg = {
                 .mclk = I2S_GPIO_UNUSED,
@@ -480,7 +556,7 @@ static esp_err_t open_mode(mic_mode_t mode)
         err = i2s_channel_init_std_mode(s_rx, &cfg);
     } else {
         i2s_pdm_rx_config_t cfg = {
-            .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(RATE),
+            .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(s_rate),
             .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
             .gpio_cfg = { .clk = PIN_CLK, .din = PIN_DATA, .invert_flags = { .clk_inv = false } },
         };
@@ -508,13 +584,28 @@ static void close_mode(void)
     }
 }
 
+static esp_err_t s_read_err;
+static unsigned s_read_fails;
+static size_t s_read_got;
+
+void mic_read_stats(int *err, unsigned *fails, unsigned *got)
+{
+    *err = s_read_err;
+    *fails = s_read_fails;
+    *got = (unsigned)s_read_got;
+}
+
 /* Read one block of N samples into s_x (-1..1). */
 static esp_err_t read_block(void)
 {
     bool wide = s_mode == MODE_I2S_LEFT || s_mode == MODE_I2S_RIGHT;
     size_t want = N * (wide ? 4 : 2), got = 0;
-    esp_err_t err = i2s_channel_read(s_rx, s_raw, want, &got, pdMS_TO_TICKS(200));
+    int64_t t0 = esp_timer_get_time();
+    esp_err_t err = i2s_channel_read(s_rx, s_raw, want, &got, 500);   /* ms (not ticks); a block is 128 ms at 8 kHz */
     if (err != ESP_OK || got != want) {
+        s_read_got = (size_t)((esp_timer_get_time() - t0) / 1000);   /* how long the failed read waited, ms */
+        s_read_err = err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
+        s_read_fails++;
         return err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
     }
     if (wide) {
@@ -572,12 +663,39 @@ static void mic_task(void *arg)
         if (s_reprobe) {
             s_reprobe = false;
             close_mode();
+            s_rate = RATE;
             pick_mode();
             s_ok = s_rx != NULL;
         }
+        /* low power: a slower clock and only the level, unless a PC is streaming the mic */
+        static bool low_broken;
+        int want = s_low_req && !stream_listeners() && !low_broken ? RATE / LOW_DIV : RATE;
+        if (want != s_rate && s_rx) {
+            close_mode();
+            s_rate = want;
+            if (open_mode(s_mode) != ESP_OK) {      /* the slow clock didn't take: stay at full rate */
+                ESP_LOGW(TAG, "can't capture at %d Hz; low power keeps the full rate", s_rate);
+                low_broken = true;
+                s_rate = RATE;
+                open_mode(s_mode);
+            }
+            ESP_LOGI(TAG, "%d Hz", s_rate);
+        }
         esp_err_t err = s_rx ? read_block() : ESP_ERR_INVALID_STATE;
-        if (err == ESP_OK) {
-            analyse();
+        if (err == ESP_OK && s_rate != RATE) {
+            float rms = block_std();
+            presence_update(20.0f * log10f(rms + 1e-9f));
+            portENTER_CRITICAL(&s_mux);
+            s_snap.dbfs = 20.0f * log10f(rms + 1e-9f);
+            for (int b = 0; b < MIC_BANDS; b++) s_snap.bands[b] = -100.0f;
+            s_snap.pitch_hz = NAN;
+            s_snap.blocks++;
+            portEXIT_CRITICAL(&s_mux);
+        } else if (err == ESP_OK) {
+            stream_push(s_x, N);          /* raw, before block_std() takes the DC out in place */
+            float rms = block_std();
+            presence_update(20.0f * log10f(rms + 1e-9f));
+            analyse(rms);
         } else if (err != ESP_ERR_TIMEOUT) {
             vTaskDelay(pdMS_TO_TICKS(100));
         }

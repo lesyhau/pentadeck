@@ -27,6 +27,8 @@
  *
  * Everywhere: LIGHT = full brightness for 10 s; long LIGHT = LEDs off / on; long power = sleep
  * (screens and LEDs dark; any button wakes the device, and that press does nothing else).
+ * Low power (power.c) comes by itself when nobody seems to be about: the screens dim and slow down;
+ * a sound or any button wakes it (the press that wakes it does nothing else).
  */
 #include <stdbool.h>
 #include <stdint.h>

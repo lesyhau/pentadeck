@@ -36,6 +36,9 @@ export interface Draft {
   w0tz: string
   w1name: string
   w1tz: string
+  idle: boolean
+  idle_min: number
+  idle_brightness: number
 }
 
 export type DraftErrors = Partial<Record<keyof Draft, string>>
@@ -72,6 +75,9 @@ export function toDraft(s: DeviceSettings): Draft {
     w0tz: s.world_tz?.[0] ?? 'GMT0BST,M3.5.0/1,M10.5.0',
     w1name: s.world_names?.[1] ?? 'NEW YORK',
     w1tz: s.world_tz?.[1] ?? 'EST5EDT,M3.2.0,M11.1.0',
+    idle: (s.idle_min ?? 10) > 0,
+    idle_min: s.idle_min || 10,
+    idle_brightness: s.idle_brightness ?? 10,
   }
 }
 
@@ -104,6 +110,8 @@ export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'panels'
     alarm_days: d.alarm_days,
     world_names: [d.w0name.trim().toUpperCase(), d.w1name.trim().toUpperCase()],
     world_tz: [d.w0tz.trim(), d.w1tz.trim()],
+    idle_min: d.idle ? d.idle_min : 0,
+    idle_brightness: d.idle_brightness,
   }
 }
 
@@ -113,7 +121,8 @@ export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'panels'
  * differ, which is honest: the field was edited).
  */
 export function sameDraft(a: Draft, b: Draft): boolean {
-  const key = (d: Draft) => JSON.stringify({ ...d, night_start: d.night ? d.night_start : '', night_end: d.night ? d.night_end : '' })
+  const key = (d: Draft) =>
+    JSON.stringify({ ...d, night_start: d.night ? d.night_start : '', night_end: d.night ? d.night_end : '', idle_min: d.idle ? d.idle_min : 0 })
   return key(a) === key(b)
 }
 

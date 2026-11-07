@@ -42,6 +42,9 @@ typedef struct {
     uint16_t tuner_a4;               /* Hz, 430..450 */
     uint16_t metro_bpm;              /* 30..240 */
     uint16_t timer_min;              /* 1..180 */
+    /* v8: low power when nobody seems to be at the desk (power.c) */
+    uint8_t idle_min;                /* minutes without a sign of anyone before low power, 0 = never */
+    uint8_t idle_brightness;         /* 0..100 %, the screens' level in low power (never above the normal one) */
 } tg_settings_t;
 
 esp_err_t settings_init(void);                 /* load from NVS (or defaults) */

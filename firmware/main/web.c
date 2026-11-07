@@ -21,7 +21,9 @@
 #include "mic.h"
 #include "modes.h"
 #include "netdata.h"
+#include "power.h"
 #include "settings.h"
+#include "stream.h"
 #include "ui.h"
 
 /* The settings page: one self-contained HTML file built from webui/ by
@@ -114,6 +116,14 @@ static esp_err_t status_get(httpd_req_t *req)
     add_num(mo, "dba", m.dba);
     add_num(mo, "pitch_hz", m.pitch_hz);
     add_num(mo, "pitch_clarity", m.pitch_clarity * 100.0f);
+    cJSON_AddNumberToObject(mo, "listeners", stream_listeners());   /* PCs streaming the mic now */
+    cJSON_AddNumberToObject(mo, "rate", mic_rate());
+    add_num(mo, "background_dbfs", mic_floor_db());
+
+    cJSON *po = cJSON_AddObjectToObject(o, "power");
+    cJSON_AddStringToObject(po, "state", power_idle() ? "idle" : "full");
+    cJSON_AddStringToObject(po, "last_sign", power_last_reason());   /* sound, button, pc input, ... */
+    cJSON_AddNumberToObject(po, "quiet_s", power_quiet_s());
     cJSON_AddStringToObject(o, "mode", modes_name());
     add_num(o, "tempo_bpm", modes_tempo_bpm());
 
@@ -211,6 +221,19 @@ static esp_err_t pcm_get(httpd_req_t *req)
     esp_err_t err = httpd_resp_send(req, (const char *)buf, n * sizeof(float));
     free(buf);
     return err;
+}
+
+/* POST /api/power?state=idle|wake: low power now (until the next sign of someone), or full power */
+static esp_err_t power_post(httpd_req_t *req)
+{
+    if (!http_authorized(req)) return ESP_OK;
+    char q[32] = "", st[8] = "";
+    httpd_req_get_url_query_str(req, q, sizeof q);
+    httpd_query_key_value(q, "state", st, sizeof st);
+    if (strcmp(st, "idle") == 0) power_sleep_now();
+    else if (strcmp(st, "wake") == 0) power_wake("web");
+    else return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "state must be idle or wake");
+    return httpd_resp_sendstr(req, "ok\n");
 }
 
 /* Pairing a browser without typing the token: POST /api/pair asks on the device's screens and returns
@@ -343,6 +366,7 @@ void web_register(httpd_handle_t server)
         { .uri = "/api/screen",   .method = HTTP_GET,  .handler = screen_get },
         { .uri = "/api/beep",     .method = HTTP_POST, .handler = beep_post },
         { .uri = "/api/leds",     .method = HTTP_POST, .handler = leds_post },
+        { .uri = "/api/power",    .method = HTTP_POST, .handler = power_post },
     };
     for (size_t i = 0; i < sizeof uris / sizeof uris[0]; i++) {
         httpd_register_uri_handler(server, &uris[i]);

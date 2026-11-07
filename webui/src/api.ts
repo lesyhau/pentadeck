@@ -34,6 +34,8 @@ export interface DeviceStatus {
   mic: { mode: string; dbfs: number | null; dba?: number | null }
   /** What the screens show: "DASH", "TUNER", "TEMPO", "WORLD"... Older firmware leaves it out. */
   mode?: string
+  /** Low power when nobody is about (firmware 0.16+): the state, what last showed someone, how long ago. */
+  power?: { state: 'full' | 'idle'; last_sign: string; quiet_s: number }
 }
 
 export interface DeviceSettings {
@@ -63,6 +65,9 @@ export interface DeviceSettings {
   alarm_days?: number
   world_names?: string[]
   world_tz?: string[]
+  /** Minutes without a sign of anyone before low power, 0 = never (firmware 0.16+). */
+  idle_min?: number
+  idle_brightness?: number
   led_modes?: string[]
   panels?: string[]
 }

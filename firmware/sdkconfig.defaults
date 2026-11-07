@@ -28,6 +28,9 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # HTTP server: room for headers; firmware upload streams in 4 KB chunks
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 
+# The web server takes up to 10 sockets; the mic stream (stream.c) needs 3 more
+CONFIG_LWIP_MAX_SOCKETS=16
+
 # 8 MB octal PSRAM (AP Memory), 40 MHz like the stock firmware. If it ever fails to start, carry on
 # without it rather than refuse to boot (the UI then falls back to small internal draw buffers).
 CONFIG_SPIRAM=y
@@ -37,6 +40,9 @@ CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=49152
 CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+
+# Low power (power.c): the CPU may drop to 80 MHz while nobody is at the desk
+CONFIG_PM_ENABLE=y
 
 # Speed for the software renderer
 CONFIG_COMPILER_OPTIMIZATION_PERF=y

@@ -11,6 +11,7 @@
 #include "leds.h"
 #include "mic.h"
 #include "netdata.h"
+#include "power.h"
 #include "settings.h"
 
 #define TEAL    0x2A8CB2u          /* brand teal 600, the HUD colour */
@@ -210,14 +211,14 @@ static void ledfx_task(void *arg)
     bool was_off = false;
     TickType_t last = xTaskGetTickCount();
     for (;;) {
-        vTaskDelayUntil(&last, pdMS_TO_TICKS(33));
+        vTaskDelayUntil(&last, pdMS_TO_TICKS(power_idle() ? 250 : 33));
         int64_t now = esp_timer_get_time();
         if (now < s_hold_until) continue;
         uint32_t ms = (uint32_t)(now / 1000);
         settings_get(&s);
         int bright = s.led_brightness;
         if (settings_is_night(&s, netdata_time_valid())) bright = bright * s.night_brightness / 100;
-        bool off = strcmp(s.led_mode, "off") == 0 || bright == 0 || s_sleep;
+        bool off = strcmp(s.led_mode, "off") == 0 || bright == 0 || s_sleep || power_idle();   /* low power: dark */
         leds_keypad(off ? 0 : (uint8_t)bright);         /* buttons board: steady, same brightness */
         if (off) {
             if (!was_off) leds_off();

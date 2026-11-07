@@ -8,6 +8,7 @@
 #include "esp_err.h"
 
 #define MIC_BANDS 16
+#define MIC_RATE  32000           /* samples per second */
 
 typedef struct {
     float dbfs;               /* loudness of the last block, dB full scale (RMS), about -90..0 */
@@ -39,4 +40,12 @@ void mic_chroma_on(bool on);
 /* The latest frame (not normalised) and its number (changes every 64 ms); false if none yet. */
 bool mic_chroma(float out[12], uint32_t *frame, float *energy);
 /* The tuner's last 2048 samples (16 kHz, float), for tests; returns the count copied. */
-int mic_tuner_samples(float *out, int n);              /* run pitch detection (costs CPU, so only while the tuner shows) */
+int mic_tuner_samples(float *out, int n);
+/* Low power: capture at 8 kHz and compute only the level (stays at 32 kHz while the mic is streamed). */
+void mic_low_power(bool on);
+int mic_rate(void);                   /* the capture rate now, Hz */
+/* Presence: esp_timer ms of the last sound clearly above the room's background (0: none yet), and that
+ * background (dBFS, NAN until measured). */
+uint32_t mic_presence_ms(void);
+void mic_read_stats(int *err, unsigned *fails, unsigned *got);   /* the last failed read, for /audio */
+float mic_floor_db(void);              /* run pitch detection (costs CPU, so only while the tuner shows) */
