@@ -276,8 +276,7 @@ static void lt_draw(hud_fb_t *fb, int s)
         else mk_title(fb, "LONG TONE");
         mk_softkey(fb, "LIGHT");
         break;
-    case 1: mk_softkey(fb, "REF -"); break;
-    case 2:
+    case 1:                                           /* (the middle screen's top is the clock) */
         if (lt_cnt > 3) {
             float mean = lt_sum / lt_cnt, sd = sqrtf(fmaxf(0, lt_sum2 / lt_cnt - mean * mean));
             snprintf(t, sizeof t, "AVG %+.0f \xC2\xB7 SD %.0f", mean, sd);
@@ -285,8 +284,9 @@ static void lt_draw(hud_fb_t *fb, int s)
         } else {
             mk_title(fb, "INTONATION");
         }
-        mk_softkey(fb, "CLEAR");
+        mk_softkey(fb, "REF -");
         break;
+    case 2: mk_softkey(fb, "CLEAR"); break;
     case 3:
         snprintf(t, sizeof t, "BEST %.1f S", lt_best);
         hud_header(fb, &font_b9, t, 12, 1, 0, 0, C_LEGIBLE, C_HUD_DIM);
@@ -687,19 +687,23 @@ const mode_def_t MODE_DEF_METRO = {
 /* ================================================================= chords */
 
 /* The chord: the last ~0.5 s of pitch classes matched against the 24 major and minor triads (cosine
- * similarity), changing only when two frames agree. The key: pitch classes averaged over the last
- * ~30 s, correlated with the Krumhansl-Kessler major and minor key profiles. The flute to pick is
- * the major key that shares the song's notes (for a minor song, its relative major). */
+ * similarity), changing only when two readings agree. The key: pitch classes averaged over the last
+ * ~30 s, correlated with the Krumhansl-Kessler major and minor key profiles. Both are worked out on
+ * every fourth mic frame (256 ms); the NOTES bars follow every frame (64 ms), eased each screen frame.
+ * The key is shown the way a dizi is marked: "1 = X", the do of the major scale that shares the song's
+ * notes (a minor song rests on la, 6, of its relative major). */
 static const char *CH_ROOT[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
 static const char *KEY_MAJ[12] = { "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
 static const char *KEY_MIN[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B" };
-static const int SIG_MAJ[12] = { 0, -5, 2, -3, 4, -1, 6, 1, -4, 3, -2, 5 };   /* sharps > 0, flats < 0 */
 static const float KK_MAJ[12] = { 6.35f, 2.23f, 3.48f, 2.33f, 4.38f, 4.09f, 2.52f, 5.19f, 2.39f, 3.66f, 2.29f, 2.88f };
 static const float KK_MIN[12] = { 6.33f, 2.68f, 3.52f, 5.38f, 2.60f, 3.53f, 2.54f, 4.75f, 3.98f, 2.69f, 3.34f, 3.17f };
 static const char *DEGREE[12] = { "I", "bII", "II", "bIII", "III", "IV", "#IV", "V", "bVI", "VI", "bVII", "VII" };
 
+static const int MAJ_STEP[7] = { 0, 2, 4, 5, 7, 9, 11 };   /* do re mi fa sol la si, in semitones */
+
 static float ch_short[12], ch_long[12];
-static uint32_t ch_frame, ch_frames;
+static float ch_bar[12], ch_bar_shown[12];            /* the NOTES bars: per frame, and eased */
+static uint32_t ch_frame, ch_slow_frame, ch_frames;
 static int ch_chord = -1, ch_cand = -1, ch_cand_n;   /* 0..11 major, 12..23 minor, -1 none */
 static int ch_hist[6], ch_hist_n;
 static int ch_key = -1;                               /* 0..11 major, 12..23 minor */
@@ -733,6 +737,7 @@ static float corr(const float *a, const float *b)
 static void ch_update(void)
 {
     if (ch_hold) return;
+    for (int i = 0; i < 12; i++) ch_bar_shown[i] += (ch_bar[i] - ch_bar_shown[i]) * 0.45f;
     float v[12], e;
     uint32_t fr;
     if (!mic_chroma(v, &fr, &e) || fr == ch_frame) return;
@@ -742,6 +747,9 @@ static void ch_update(void)
     float mx = 0;
     for (int i = 0; i < 12; i++) if (v[i] > mx) mx = v[i];
     ch_sound = m.dbfs > -58.0f && mx > 0;
+    for (int i = 0; i < 12; i++) ch_bar[i] = ch_sound ? 0.5f * ch_bar[i] + 0.5f * v[i] / mx : ch_bar[i] * 0.75f;
+    if (fr - ch_slow_frame < 4) return;               /* the chord and the key: every 256 ms, as tuned */
+    ch_slow_frame = fr;
     if (!ch_sound) {                                  /* silence: let the short memory fade */
         for (int i = 0; i < 12; i++) ch_short[i] *= 0.6f;
         ch_cand = -1;
@@ -801,6 +809,15 @@ static void ch_key_fn(const btn_event_t *e)
 
 static void ch_leave(void) { ch_hold = false; }
 
+/* a note of the major scale on do (deg 0..6 = do..si), spelt for that key: "Bb", "E#" */
+static void scale_note(char *out, size_t n, int doh, int deg)
+{
+    static const char LET[] = "CDEFGAB";
+    int l = ((int)(strchr(LET, KEY_MAJ[doh][0]) - LET) + deg) % 7;
+    int acc = (doh + MAJ_STEP[deg] - MAJ_STEP[l] + 24) % 12;    /* 1 sharp, 11 flat */
+    snprintf(out, n, "%c%s", LET[l], acc == 1 ? "#" : acc == 11 ? "b" : "");
+}
+
 static void chord_name(char *out, size_t n, int q)
 {
     snprintf(out, n, "%s%s", CH_ROOT[q % 12], q >= 12 ? "m" : "");
@@ -817,39 +834,49 @@ static void degree(char *out, size_t n, int q)
 static void ch_draw(hud_fb_t *fb, int s)
 {
     char t[32], d[8];
-    int tonic = ch_key % 12;
+    int tonic = ch_key < 0 ? 0 : ch_key % 12;
     bool minor = ch_key >= 12;
+    int doh = minor ? (tonic + 3) % 12 : tonic;       /* the dizi's key: where do is */
     switch (s) {
     case 0: {
         mk_title(fb, "KEY");
         if (ch_key < 0) {
             hud_text(fb, 64, 60, "LISTENING", &font_b9, (g_ms / 600) % 2 ? C_CAPTION : C_HUD, "mm", 2);
         } else {
-            hud_text(fb, 64, 60, minor ? KEY_MIN[tonic] : KEY_MAJ[tonic], &font_o28, C_INK, "ms", 0);
-            hud_text(fb, 64, 74, minor ? "MINOR" : "MAJOR", &font_b9, C_LEGIBLE, "mm", 2);
-            int sig = SIG_MAJ[minor ? (tonic + 3) % 12 : tonic];
-            if (sig == 0) snprintf(t, sizeof t, "NO SHARPS OR FLATS");
-            else snprintf(t, sizeof t, "%d %s%s", abs(sig), sig > 0 ? "SHARP" : "FLAT", abs(sig) > 1 ? "S" : "");
-            hud_text(fb, 64, 90, t, &font_b7, C_CAPTION, "mm", 1);
+            hud_text(fb, 64, 74, KEY_MAJ[doh], &font_o48, ch_hold ? C_ACCENT : C_SUCCESS, "ms", 0);
+            if (minor) snprintf(t, sizeof t, "%s MINOR \xC2\xB7 6 = %s", KEY_MIN[tonic], KEY_MIN[tonic]);
+            else snprintf(t, sizeof t, "MAJOR");
+            hud_text(fb, 64, 89, t, &font_b8, C_LEGIBLE, "mm", 1);
             mk_level_bar(fb, 34, 100, 94, 103, clamp01(ch_key_conf / 0.25f), 8);
         }
         mk_softkey(fb, "LIGHT");
         break;
     }
-    case 1:
-        mk_title(fb, "FLUTE");
+    case 1: {
+        /* the dizi's notes from all holes closed (low sol) up: 5 6 7 1 2 3 4; the loudest note lit */
+        mk_title(fb, "DIZI");
         if (ch_key < 0) {
             hud_text(fb, 64, 64, "\xE2\x80\x94", &font_o28, C_CAPTION, "ms", 0);
         } else {
-            int fk = minor ? (tonic + 3) % 12 : tonic;
-            hud_text(fb, 64, 30, "PICK THE FLUTE IN", &font_b7, C_CAPTION, "mm", 1);
-            hud_text(fb, 64, 80, KEY_MAJ[fk], &font_o48, C_SUCCESS, "ms", 0);
-            if (minor) snprintf(t, sizeof t, "%s MINOR = %s MAJOR", KEY_MIN[tonic], KEY_MAJ[fk]);
-            else snprintf(t, sizeof t, "%s MAJOR SCALE", KEY_MAJ[fk]);
-            hud_text(fb, 64, 96, t, &font_b7, C_LEGIBLE, "mm", 1);
+            static const int DEG[7] = { 4, 5, 6, 0, 1, 2, 3 };
+            int hot = -1;
+            float hm = 0.3f;
+            if (ch_sound) for (int i = 0; i < 12; i++) if (ch_bar_shown[i] > hm) { hm = ch_bar_shown[i]; hot = i; }
+            for (int j = 0; j < 7; j++) {
+                int x = 10 + j * 18, deg = DEG[j];
+                bool on = (doh + MAJ_STEP[deg]) % 12 == hot;
+                hud_color_t c = on ? C_SUCCESS : deg == 0 ? C_INK : C_INK2;
+                t[0] = (char)('1' + deg);
+                t[1] = 0;
+                hud_text(fb, x, 58, t, &font_o16, c, "mm", 0);
+                if (j < 3) hud_circle(fb, x, 69, 1.5f, c);   /* the low octave: a dot below */
+                scale_note(t, sizeof t, doh, deg);
+                hud_text(fb, x, 83, t, &font_b8, on ? C_SUCCESS : C_LEGIBLE, "mm", 0);
+            }
         }
         mk_softkey(fb, ch_hold ? "RELEASE" : "HOLD");
         break;
+    }
     case 2:
         if (ch_chord >= 0) {
             chord_name(t, sizeof t, ch_chord);
@@ -876,12 +903,12 @@ static void ch_draw(hud_fb_t *fb, int s)
     case 4: {
         mk_title(fb, "NOTES");
         float mx = 0;
-        for (int i = 0; i < 12; i++) if (ch_short[i] > mx) mx = ch_short[i];
+        for (int i = 0; i < 12; i++) if (ch_bar_shown[i] > mx) mx = ch_bar_shown[i];
         static const bool black[12] = { 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0 };
         static const char *nat[12] = { "C", "", "D", "", "E", "F", "", "G", "", "A", "", "B" };
         for (int i = 0; i < 12; i++) {
             int x = 10 + i * 9;
-            int h = mx > 0 ? (int)lroundf(ch_short[i] / mx * 58) : 0;
+            int h = mx > 0.02f ? (int)lroundf(ch_bar_shown[i] / mx * 58) : 0;
             bool tone = false;
             if (ch_chord >= 0) {
                 int r = ch_chord % 12, th = ch_chord >= 12 ? 3 : 4;

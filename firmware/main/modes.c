@@ -2,6 +2,8 @@
  * toast, ringing, and the SETUP mode. The other modes live in mode_music.c, mode_time.c, mode_fx.c. */
 #include "modes.h"
 
+#include <time.h>
+
 #include "freertos/FreeRTOS.h"
 
 #include "esp_random.h"
@@ -512,4 +514,13 @@ void modes_draw(hud_fb_t *fb, int screen)
         hud_frame(fb, frame, C_P900, (int)(g_ms / 500));
     }
     if (d->draw) d->draw(fb, screen);
+    /* the clock heads the middle screen in every mode (not SETUP: its headers name the settings) */
+    if (screen == 2 && s_mode != MODE_SETUP && netdata_time_valid()) {
+        time_t now = time(NULL);
+        struct tm tm;
+        localtime_r(&now, &tm);
+        char t[8];
+        strftime(t, sizeof t, g_cfg.hour24 ? "%H:%M" : "%I:%M", &tm);
+        mk_title(fb, t);
+    }
 }

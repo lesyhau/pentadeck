@@ -51,7 +51,7 @@
 #include "ui.h"
 #include "web.h"
 
-#define FW_VERSION      "0.13.1"
+#define FW_VERSION      "0.14.0"
 #define WIFI_FALLBACK_S 180   /* generous: the device sits at about -80 dBm */
 #define EV_GOT_IP       BIT0
 

@@ -50,8 +50,9 @@ The order is a setting, and any screen can be turned off.
     tap the tempo (a tapped tempo stays held), hold what it heard, or switch octave (1×, 2×, ½×).
     The metronome starts from the tempo held or found here.
   - **Chords:** names the chord being played (with its degree in the key: I, IV, V, vi …), finds
-    the song's key and key signature, and tells you which flute to pick: the major key that shares the
-    song's notes (for a minor song, its relative major).
+    the song's key and shows it the way a dizi is marked, "1 = Bb": the major scale that shares the
+    song's notes (for a minor song, its relative major), so it names the dizi to pick. A second screen
+    lists that dizi's notes from all holes closed (5 6 7 1 2 3 4) and lights the one you're playing.
   - **Metronome:** 30–240 BPM, with a pendulum, beat lights and a click on the buzzer.
   - **Stopwatch** with laps, and a **timer** that drains the LED strips and plays a melody at zero.
   - **Alarm:** a daily alarm (with LIGHT to snooze) and an hourly chime, set Casio‑style on the device.

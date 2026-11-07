@@ -34,9 +34,9 @@ void mic_tempo(bool on);              /* compute the envelope (only while the te
 /* Copy the newest n values, oldest first; *last_ms = esp_timer ms when the newest frame ended. */
 int mic_onsets(float *out, int n, uint32_t *last_ms);
 /* Chords and key: how strongly each of the 12 pitch classes (C, C#, .. B) sounds, from a 4096-point
- * spectrum at 8 kHz (0.5 s, 2 Hz a bin) every 256 ms, C2 (65 Hz) to E6 (1.3 kHz), spectral peaks only. */
+ * spectrum at 8 kHz (0.5 s, 2 Hz a bin) every 64 ms, C2 (65 Hz) to E6 (1.3 kHz), spectral peaks only. */
 void mic_chroma_on(bool on);
-/* The latest frame (not normalised) and its number (changes every 256 ms); false if none yet. */
+/* The latest frame (not normalised) and its number (changes every 64 ms); false if none yet. */
 bool mic_chroma(float out[12], uint32_t *frame, float *energy);
 /* The tuner's last 2048 samples (16 kHz, float), for tests; returns the count copied. */
 int mic_tuner_samples(float *out, int n);              /* run pitch detection (costs CPU, so only while the tuner shows) */

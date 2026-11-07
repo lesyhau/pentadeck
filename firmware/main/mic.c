@@ -120,9 +120,9 @@ static void onsets_update(void)
 
 #define C_RATE (RATE / 4)               /* 8 kHz */
 #define C_N    4096                     /* 0.51 s, 1.95 Hz a bin */
-#define C_HOP  2048                     /* a frame every 256 ms */
+#define C_HOP  512                      /* a frame every 64 ms (the windows overlap by 7/8) */
 static volatile bool s_chroma_on;
-static float *c_ring, *c_re, *c_im;     /* in PSRAM, allocated on first use */
+static float *c_ring, *c_re, *c_im, *c_win;   /* in PSRAM, allocated on first use */
 static int c_w, c_new, c_dec;
 static float c_b[5], c_s1[4], c_s2[4];  /* the anti-alias low-pass, two biquads (coefficients, state) */
 static float c_b2[5];
@@ -165,8 +165,7 @@ static void chroma_frame(void)
 {
     /* Hann-windowed copy of the last C_N samples, oldest first */
     for (int i = 0; i < C_N; i++) {
-        float w = 0.5f - 0.5f * cosf(2.0f * (float)M_PI * i / (C_N - 1));
-        c_re[i] = c_ring[(c_w + i) % C_N] * w;
+        c_re[i] = c_ring[(c_w + i) & (C_N - 1)] * c_win[i];
         c_im[i] = 0;
     }
     fft(c_re, c_im, C_N);
@@ -205,7 +204,9 @@ static void chroma_update(void)
         c_ring = heap_caps_calloc(C_N, sizeof(float), MALLOC_CAP_SPIRAM);
         c_re = heap_caps_calloc(C_N, sizeof(float), MALLOC_CAP_SPIRAM);
         c_im = heap_caps_calloc(C_N, sizeof(float), MALLOC_CAP_SPIRAM);
-        if (!c_ring || !c_re || !c_im) { s_chroma_on = false; return; }
+        c_win = heap_caps_calloc(C_N, sizeof(float), MALLOC_CAP_SPIRAM);
+        if (!c_ring || !c_re || !c_im || !c_win) { s_chroma_on = false; return; }
+        for (int i = 0; i < C_N; i++) c_win[i] = 0.5f - 0.5f * cosf(2.0f * (float)M_PI * i / (C_N - 1));   /* Hann */
         lp_coef(c_b, 3000.0f, 0.5412f);                                 /* 4th-order Butterworth */
         lp_coef(c_b2, 3000.0f, 1.3066f);
     }
