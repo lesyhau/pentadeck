@@ -1,0 +1,49 @@
+CONFIG_IDF_TARGET="esp32s3"
+
+# Flash: GD25Q64, 8 MB, DIO @ 80 MHz (same as the stock image header)
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# Same partition layout as stock
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# Don't touch Divoom's NVS: keep Wi-Fi config and PHY calibration in RAM only,
+# so switching back to the Divoom firmware finds its settings unchanged.
+CONFIG_ESP_WIFI_NVS_ENABLED=n
+CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n
+
+# Console on UART0 (GPIO43 TX / GPIO44 RX) at 115200, where the CP2102 listens
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# GPIO19/20 (USB D-/D+ on the chip) carry the PDM microphone's clock and data on this board:
+# keep the USB-Serial-JTAG console and peripheral off so they don't claim those pins.
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=n
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# HTTP server: room for headers; firmware upload streams in 4 KB chunks
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+
+# 8 MB octal PSRAM (AP Memory), 40 MHz like the stock firmware. If it ever fails to start, carry on
+# without it rather than refuse to boot (the UI then falls back to small internal draw buffers).
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_40M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=49152
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+
+# Speed for the software renderer
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Faster HTTP (screen frames, the page, OTA): bigger TCP windows so a 32 KB frame doesn't stall on
+# the client's delayed ACKs; the Wi-Fi / lwIP buffers may live in PSRAM.
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=23040
+CONFIG_LWIP_TCP_WND_DEFAULT=23040
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=16
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y

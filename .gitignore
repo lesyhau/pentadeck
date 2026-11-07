@@ -1,0 +1,26 @@
+# secrets: Wi-Fi credentials and the access token
+firmware/main/secrets.h
+
+# build outputs
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/sdkconfig.prev
+firmware/managed_components/
+firmware/dependencies.lock
+firmware/build_log.txt
+webui/dist/
+webui/node_modules/
+
+# flash dumps and vendor images: never publish them (they hold your Wi-Fi settings and the
+# vendor's copyrighted firmware)
+*.bin
+
+# Python and editors
+.venv/
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

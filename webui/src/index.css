@@ -1,0 +1,7 @@
+/* Faces and tokens first: every @import must come before the @tailwind directives. */
+@import './fonts.css';
+@import './theme.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

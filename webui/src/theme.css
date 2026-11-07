@@ -1,0 +1,240 @@
+/* PENTADECK THEME
+   Tokens are RGB channels ("r g b") so Tailwind's opacity modifiers work on them (bg-accent/15).
+   Neutral near-black canvas, cards one step lighter, and teal only for what acts or marks.
+   The teal ramp (also the logo's): 900 #164E63, 800 #1B5E78, 700 #206F8D, 600 #2A8CB2,
+   500 #42A7CD, 400 #78BED9, 300 #A8D5E6. Load colours are the device's: orange #FB923C from
+   60 %, red #F87171 from 80 %. */
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --pd-canvas: 10 11 12;          /* #0A0B0C */
+  --pd-surface: 20 21 23;         /* #141517 cards */
+  --pd-raised: 30 31 34;          /* #1E1F22 menus, toasts, hovers */
+  --pd-field: 13 14 16;           /* #0D0E10 input wells */
+  --pd-line: 38 40 44;            /* #26282C */
+  --pd-line-strong: 58 61 66;     /* #3A3D42 */
+  --pd-ink: 242 243 244;
+  --pd-ink-2: 184 186 190;        /* #B8BABE, the device's caption grey */
+  --pd-ink-3: 122 125 131;        /* placeholders, empty values */
+  --pd-accent: 66 167 205;        /* 500: fills that act */
+  --pd-accent-hover: 120 190 217; /* 400 */
+  --pd-on-accent: 5 18 24;        /* text on an accent fill */
+  --pd-accent-ink: 120 190 217;   /* 400: teal text */
+  --pd-hud-ink: 66 167 205;       /* 500: section headings */
+  --pd-hud-rule: 22 78 99;        /* 900: the rule after them */
+  --pd-bracket: 32 111 141;       /* 700: stat-tile corners */
+  --pd-warn: 251 146 60;          /* #FB923C */
+  --pd-warn-ink: 251 146 60;
+  --pd-danger: 248 113 113;       /* #F87171 */
+  --pd-danger-ink: 248 113 113;
+  --pd-shadow-card: 0 0 #0000;
+  --pd-shadow-pop: 0 16px 40px -12px rgb(0 0 0 / 0.7), 0 2px 6px rgb(0 0 0 / 0.4);
+  --pd-header: 56px;
+  --pd-tabbar: 56px;              /* the phone's bottom tabs, without the home-bar inset */
+  --pd-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --pd-canvas: 243 244 246;       /* #F3F4F6 */
+  --pd-surface: 255 255 255;
+  --pd-raised: 248 249 250;
+  --pd-field: 255 255 255;
+  --pd-line: 226 228 232;
+  --pd-line-strong: 204 207 212;
+  --pd-ink: 17 18 20;
+  --pd-ink-2: 83 87 94;
+  --pd-ink-3: 141 145 151;
+  --pd-accent: 32 111 141;        /* 700, white text on it passes AA */
+  --pd-accent-hover: 27 94 120;   /* 800 */
+  --pd-on-accent: 255 255 255;
+  --pd-accent-ink: 32 111 141;    /* 700 */
+  --pd-hud-ink: 32 111 141;       /* 700 */
+  --pd-hud-rule: 168 213 230;     /* 300 */
+  --pd-bracket: 66 167 205;       /* 500 */
+  --pd-warn: 251 146 60;
+  --pd-warn-ink: 194 65 12;       /* darker orange for text on white */
+  --pd-danger: 239 68 68;
+  --pd-danger-ink: 185 28 28;
+  --pd-shadow-card: 0 1px 2px rgb(16 24 40 / 0.05);
+  --pd-shadow-pop: 0 16px 40px -12px rgb(16 24 40 / 0.25), 0 2px 6px rgb(16 24 40 / 0.08);
+}
+
+@layer base {
+  html {
+    background: rgb(var(--pd-canvas));
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: rgb(var(--pd-canvas));
+    color: rgb(var(--pd-ink));
+    font-size: 15px;
+    line-height: 1.5;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+    overflow-x: hidden;
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--pd-accent));
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: rgb(var(--pd-accent) / 0.3);
+  }
+  /* iOS centres the value of a time input and gives it no height of its own. */
+  input[type='time']::-webkit-date-and-time-value { text-align: left; }
+  input[type='time'] { min-height: 2.75rem; }
+}
+
+@layer components {
+  /* The page's column, inside the safe area. */
+  .pd-wrap {
+    width: 100%;
+    max-width: 72rem;
+    margin-inline: auto;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  @media (min-width: 640px) {
+    .pd-wrap {
+      padding-left: max(24px, env(safe-area-inset-left));
+      padding-right: max(24px, env(safe-area-inset-right));
+    }
+  }
+
+  /* L-shaped corner marks on a stat tile, top-left and bottom-right, as on the device's frames. */
+  .pd-brackets { position: relative; }
+  .pd-brackets::before,
+  .pd-brackets::after {
+    content: '';
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    pointer-events: none;
+    border: 0 solid rgb(var(--pd-bracket));
+  }
+  .pd-brackets::before { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+  .pd-brackets::after { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+
+  /* A load bar cut into ten cells, like the side LED strips. The fill takes currentColor. */
+  .pd-meter {
+    height: 4px;
+    background: rgb(var(--pd-line-strong) / 0.6);
+    -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 2px), transparent calc(10% - 2px) 10%);
+    mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 2px), transparent calc(10% - 2px) 10%);
+  }
+  .pd-meter > span {
+    display: block;
+    height: 100%;
+    background: currentColor;
+    transition: width 0.5s var(--pd-ease), background-color 0.3s;
+  }
+
+  /* Range input: a thin track filled up to the thumb (--pd-fill), a round thumb. */
+  .pd-range {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 44px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .pd-range:focus-visible { outline: none; }
+  .pd-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right, rgb(var(--pd-accent)) var(--pd-fill, 50%), rgb(var(--pd-line-strong)) var(--pd-fill, 50%));
+  }
+  .pd-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    margin-top: -9px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid rgb(var(--pd-accent));
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+    transition: box-shadow 0.15s;
+  }
+  .pd-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 5px rgb(var(--pd-accent) / 0.3); }
+  .pd-range::-moz-range-track { height: 4px; border-radius: 2px; background: rgb(var(--pd-line-strong)); }
+  .pd-range::-moz-range-progress { height: 4px; border-radius: 2px; background: rgb(var(--pd-accent)); }
+  .pd-range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid rgb(var(--pd-accent));
+  }
+  .pd-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 5px rgb(var(--pd-accent) / 0.3); }
+
+  /* Something that opens and closes: the row heights ease between 0 and the content's. The
+     negative margin lets focus rings inside show past the clipping box. */
+  .pd-reveal {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition: grid-template-rows 0.22s var(--pd-ease), opacity 0.18s;
+  }
+  .pd-reveal[data-open='true'] { grid-template-rows: 1fr; opacity: 1; }
+  .pd-reveal > div { min-height: 0; overflow: hidden; margin: -4px; padding: 4px; }
+
+  .pd-skeleton {
+    background: rgb(var(--pd-line));
+    border-radius: 4px;
+    animation: pd-pulse 1.6s ease-in-out infinite;
+  }
+
+  .pd-fade-in { animation: pd-fade 0.2s var(--pd-ease) both; }
+  .pd-rise { animation: pd-rise 0.35s var(--pd-ease) both; }
+  .pd-toast-in { animation: pd-drop 0.22s var(--pd-ease) both; }
+  .pd-toast-out { animation: pd-fade 0.18s reverse both; }
+
+  /* The <dialog> is a transparent full-screen layer that centres its panel; a tap on the layer
+     (outside the panel) is a tap on the backdrop. */
+  .pd-dialog {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    border: 0;
+    background: transparent;
+    color: rgb(var(--pd-ink));
+    overflow: auto;
+  }
+  .pd-dialog[open] { display: grid; place-items: center; }
+  .pd-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+  .pd-dialog-panel {
+    width: min(400px, 100%);
+    border: 1px solid rgb(var(--pd-line-strong));
+    border-radius: 14px;
+    background: rgb(var(--pd-surface));
+    box-shadow: var(--pd-shadow-pop);
+    animation: pd-pop 0.2s var(--pd-ease) both;
+  }
+}
+
+@keyframes pd-pulse { 50% { opacity: 0.45; } }
+@keyframes pd-fade { from { opacity: 0; } }
+@keyframes pd-rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes pd-drop { from { opacity: 0; transform: translateY(-8px); } }
+@keyframes pd-pop { from { opacity: 0; transform: scale(0.97); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
