@@ -34,21 +34,21 @@ original firmware.
 
 ## Layout
 
-| File | Role |
+All the C code is one ESP‑IDF component, `main/`, split into folders by role. Includes are written
+from `main/`, e.g. `#include "drivers/display.h"`.
+
+| Path | Role |
 |---|---|
-| `main/main.c` | Wi‑Fi, the start‑up sequence, the maintenance API (`/status`, `/ota`, `/switch`, `/reboot`, test endpoints) |
-| `main/display.c` | the five ST7735S panels on one 8‑bit i80 bus, chip selects driven by hand |
-| `main/hud.c` | a small software renderer (shapes, pre‑rendered fonts, images) into RGB565 frame buffers |
-| `main/ui.c` | the cockpit panels and the 30 fps render loop |
-| `main/netdata.c` | polls the stats agents; SNTP time; Open‑Meteo weather |
-| `main/mic.c` | I2S microphone: FFT, the equaliser bands, A‑weighted level |
-| `main/power.c` | low power when nobody is at the desk: watches for signs of someone, and slows the screens, LEDs, mic, Wi‑Fi, polling and CPU |
-| `main/stream.c` | the microphone as a live WAV stream on port 8081, for a PC to use as a mic |
-| `main/leds.c`, `main/ledfx.c` | the WS2812 chain (RMT with DMA) and its effects; the buttons‑board LEDs |
-| `main/buzzer.c`, `main/alerts.c` | alert sounds, and when to play them |
-| `main/settings.c` | settings in NVS (namespace `tg`), JSON in and out, validation |
-| `main/web.c` | the settings page and `/api/*` |
-| `main/assets/` | fonts and images, **generated** by `tools/gen_fonts.py` and `tools/gen_assets.py` |
+| `main/main.c`, `main/app.h` | Wi‑Fi, the start‑up sequence, the maintenance API (`/status`, `/ota`, `/switch`, `/reboot`, test endpoints) |
+| `main/secrets.h` | your Wi‑Fi details and access token (not in git; copy `secrets.example.h`) |
+| `main/drivers/` | the hardware: `display` (the five ST7735S panels on one 8‑bit i80 bus, chip selects driven by hand), `buttons` (the resistor ladder), `buzzer`, `leds` (the WS2812 chain over RMT with DMA, the buttons‑board LEDs), `mic` (PDM microphone: FFT, the equaliser bands, A‑weighted level, pitch, tempo, chroma) |
+| `main/gfx/` | `hud`: a small software renderer (shapes, pre‑rendered fonts, images) into RGB565 frame buffers |
+| `main/gfx/assets/` | fonts and images, **generated** by `tools/gen_fonts.py` and `tools/gen_assets.py` |
+| `main/ui/` | `ui`: the cockpit panels and the 30 fps render loop; `ledfx`: what the LED chain shows |
+| `main/modes/` | the Casio‑style modes: `modes` runs them (and SETUP, toasts, ringing, pairing); `mode_music`, `mode_time` and `mode_fx` hold them; `mode_kit.h` is what they share |
+| `main/net/` | `netdata` (polls the stats agents; SNTP time; Open‑Meteo weather), `web` (the settings page and `/api/*`), `stream` (the microphone as a live WAV stream on port 8081, for a PC to use as a mic) |
+| `main/core/` | `settings` (NVS namespace `tg`, JSON in and out, validation), `power` (low power when nobody is at the desk), `alerts` (when to sound the buzzer), `tzlite` (other places' local time from a POSIX TZ string) |
+| `main/web/index.html.gz` | the settings page, built by `../webui` and embedded in the image |
 | `tools/push.py` | status, OTA, slot switch and reboot over Wi‑Fi |
 | `tools/screenshot.py` | saves what the five screens show as one PNG |
 | `tools/make_otadata.py` | builds an `otadata` image that boots a chosen slot (first install) |

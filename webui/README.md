@@ -86,22 +86,13 @@ woff2), and each extra Inter weight adds about 24 KB. Add a weight only if the d
 
 | Path | What it is |
 | --- | --- |
-| `src/App.tsx` | The shell: header, tabs, the current page, the save bar, the pairing dialog, and every write to the device |
-| `src/router.ts` | The four pages and their hash addresses (`#/`, `#/remote`, `#/settings`, `#/device`), and the page title |
-| `src/Nav.tsx` | The page tabs: a bottom bar on a phone, in the header from `lg` |
-| `src/Overview.tsx` | The Overview page, polled every 2 s by `src/useStatus.ts` |
-| `src/Remote.tsx` | The remote: the screens' live view and the five buttons |
-| `src/Settings.tsx` | The Settings page |
-| `src/DeviceSettingsForm.tsx` | The settings cards: Display, LEDs, Sounds & alarm, World clock, Data & location |
-| `src/useSettings.ts` | The settings draft, kept above the pages: load, edit, validate, save, undo |
-| `src/Device.tsx` | The Device page: access, firmware, reboot, device info |
-| `src/Pairing.tsx` | Pairing: the flow (`usePairing`), the code panel and the pairing dialog |
-| `src/form.ts` | The form model: draft, payload, validation (the same limits the device enforces) |
-| `src/api.ts` | The device's HTTP API and formatting helpers |
-| `src/appearance.ts` | Light, dark or system, and the pre-paint script that prevents a flash of the wrong theme |
+| `src/main.tsx`, `src/App.tsx` | The entry point, and the shell: header, tabs, the current page, the save bar, the pairing dialog, and every write to the device |
+| `src/pages/` | One file per page: `Overview.tsx` (polled every 2 s by `hooks/useStatus.ts`), `Remote.tsx` (the screens' live view and the five buttons), `Settings.tsx` with its cards in `DeviceSettingsForm.tsx` (Display, LEDs, Sounds & alarm, World clock, Data & location), and `Device.tsx` (access, firmware, reboot, device info) |
+| `src/components/` | Pieces the app shell and pages share: `Nav.tsx` (the page tabs: a bottom bar on a phone, in the header from `lg`) and `Pairing.tsx` (the flow, `usePairing`, the code panel and the pairing dialog) |
+| `src/hooks/` | `useStatus.ts` (polls `/api/status`) and `useSettings.ts` (the settings draft, kept above the pages: load, edit, validate, save, undo) |
+| `src/lib/` | No React: `api.ts` (the device's HTTP API and formatting helpers), `form.ts` (draft, payload, validation with the same limits the device enforces), `router.ts` (the four pages, their hash addresses `#/`, `#/remote`, `#/settings`, `#/device`, and the page title), `appearance.ts` (light, dark or system, and the pre-paint script that prevents a flash of the wrong theme) |
 | `src/ui/` | The page's small design system (buttons, fields, switches, sliders, stat tiles, dialogs and more) |
-| `src/theme.css` | Design tokens (`--pd-*`, light and dark) and the few styles Tailwind can't express |
-| `src/fonts.css` | The bundled font faces |
+| `src/styles/` | `index.css` (Tailwind's entry), `theme.css` (design tokens `--pd-*`, light and dark, and the few styles Tailwind can't express), `fonts.css` (the bundled font faces) |
 | `src/brand/` | The logo mark, favicon and Home Screen icon |
 
 ## Device API

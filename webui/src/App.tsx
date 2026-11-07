@@ -3,16 +3,16 @@ import { AppBar, AppearanceMenu, PageTitle, SaveBar, StatusDot, cn, setAppearanc
 import {
   NOT_PAIRED, TOKEN_KEY, clearToken, needsToken, post, pressButton, readToken, refusal, uploadFirmware, writeToken,
   type ButtonEvent, type ButtonKey,
-} from './api'
-import { usePage } from './router'
-import { TabBar, TopTabs } from './Nav'
-import { useStatus } from './useStatus'
-import { useSettings } from './useSettings'
-import { PairDialog, type Retry, type Send } from './Pairing'
-import { Overview } from './Overview'
-import { Remote } from './Remote'
-import { SettingsPage } from './Settings'
-import { DevicePage } from './Device'
+} from './lib/api'
+import { usePage } from './lib/router'
+import { TabBar, TopTabs } from './components/Nav'
+import { useStatus } from './hooks/useStatus'
+import { useSettings } from './hooks/useSettings'
+import { PairDialog, type Retry, type Send } from './components/Pairing'
+import { Overview } from './pages/Overview'
+import { Remote } from './pages/Remote'
+import { SettingsPage } from './pages/Settings'
+import { DevicePage } from './pages/Device'
 
 /**
  * THE SHELL: the header, the four pages and their tabs, and everything the pages share - the live
