@@ -19,8 +19,8 @@
 static const char *TAG = "settings";
 #define NS      "tg"
 #define KEY     "cfg"
-#define VERSION 9                   /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
-                                       7 the modes' values, 8 low power, 9 the mic stream switch */
+#define VERSION 10                  /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
+                                       7 the modes' values, 8 low power, 9 the mic stream switch, 10 the AUDIO view */
 
 typedef struct {
     uint32_t version;
@@ -33,6 +33,7 @@ static volatile uint32_t s_gen;
 
 static const char *PANELS[] = { "lab", "cpu", "nav", "gpu", "audio", "off" };
 static const char *LED_MODES[] = { "off", "glow", "status", "music" };
+static const char *AUDIO_VIEWS[] = { "eq", "vu" };
 
 static void defaults(tg_settings_t *s)
 {
@@ -73,6 +74,7 @@ static void defaults(tg_settings_t *s)
     s->idle_min = 10;
     s->idle_brightness = 10;
     s->mic_stream = true;
+    strcpy(s->audio_view, "eq");
 }
 
 static bool valid_panel(const char *p)
@@ -109,6 +111,9 @@ static esp_err_t validate(const tg_settings_t *s, char *err, int err_len)
     for (size_t i = 0; i < sizeof LED_MODES / sizeof LED_MODES[0]; i++) mode_ok |= strcmp(s->led_mode, LED_MODES[i]) == 0;
     if (!mode_ok) FAIL("unknown LED mode '%s'", s->led_mode);
     if (s->led_brightness > 100) FAIL("LED brightness is 0..100");
+    bool view_ok = false;
+    for (size_t i = 0; i < sizeof AUDIO_VIEWS / sizeof AUDIO_VIEWS[0]; i++) view_ok |= strcmp(s->audio_view, AUDIO_VIEWS[i]) == 0;
+    if (!view_ok) FAIL("unknown audio view '%s' (eq or vu)", s->audio_view);
     if (!valid_hhmm(s->alarm_time) || !s->alarm_time[0]) FAIL("alarm time must be HH:MM");
     if (s->tuner_a4 < 430 || s->tuner_a4 > 450) FAIL("tuner A4 is 430..450 Hz");
     if (s->metro_bpm < 30 || s->metro_bpm > 240) FAIL("metronome is 30..240 BPM");
@@ -149,6 +154,8 @@ esp_err_t settings_init(void)
             defaults(&s);
             if (st.version == VERSION && len == sizeof st) {
                 s = st.s;
+            } else if (st.version == 9 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, audio_view)) {
+                memcpy(&s, &st.s, offsetof(tg_settings_t, audio_view));
             } else if (st.version == 8 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, mic_stream)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, mic_stream));
             } else if (st.version == 7 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, idle_min)) {
@@ -258,6 +265,7 @@ char *settings_to_json(void)
     cJSON_AddNumberToObject(o, "idle_min", s.idle_min);
     cJSON_AddNumberToObject(o, "idle_brightness", s.idle_brightness);
     cJSON_AddBoolToObject(o, "mic_stream", s.mic_stream);
+    cJSON_AddStringToObject(o, "audio_view", s.audio_view);
     cJSON *wn = cJSON_AddArrayToObject(o, "world_names"), *wt = cJSON_AddArrayToObject(o, "world_tz");
     for (int i = 0; i < 2; i++) {
         cJSON_AddItemToArray(wn, cJSON_CreateString(s.world_name[i]));
@@ -265,6 +273,8 @@ char *settings_to_json(void)
     }
     cJSON *modes = cJSON_AddArrayToObject(o, "led_modes");
     for (size_t i = 0; i < sizeof LED_MODES / sizeof LED_MODES[0]; i++) cJSON_AddItemToArray(modes, cJSON_CreateString(LED_MODES[i]));
+    cJSON *views = cJSON_AddArrayToObject(o, "audio_views");
+    for (size_t i = 0; i < sizeof AUDIO_VIEWS / sizeof AUDIO_VIEWS[0]; i++) cJSON_AddItemToArray(views, cJSON_CreateString(AUDIO_VIEWS[i]));
     cJSON *panels = cJSON_AddArrayToObject(o, "panels");
     for (size_t i = 0; i < sizeof PANELS / sizeof PANELS[0]; i++) cJSON_AddItemToArray(panels, cJSON_CreateString(PANELS[i]));
     char *out = cJSON_PrintUnformatted(o);
@@ -322,6 +332,7 @@ esp_err_t settings_from_json(const char *json, char *err, int err_len)
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "timer_min"))) s.timer_min = (uint16_t)v->valuedouble;
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "idle_min"))) s.idle_min = (uint8_t)(v->valuedouble > 255 ? 255 : v->valuedouble < 0 ? 0 : v->valuedouble);
     if (cJSON_IsBool(v = cJSON_GetObjectItem(o, "mic_stream"))) s.mic_stream = cJSON_IsTrue(v);
+    copy_str(s.audio_view, sizeof s.audio_view, cJSON_GetObjectItem(o, "audio_view"));
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "idle_brightness"))) s.idle_brightness = (uint8_t)(v->valuedouble > 255 ? 255 : v->valuedouble < 0 ? 0 : v->valuedouble);
     if (cJSON_IsArray(v = cJSON_GetObjectItem(o, "world_names"))) {
         for (int i = 0; i < 2; i++) copy_str(s.world_name[i], sizeof s.world_name[i], cJSON_GetArrayItem(v, i));

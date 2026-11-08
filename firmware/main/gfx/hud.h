@@ -52,7 +52,7 @@ typedef struct {
 #define C_SCAN_DIM 0x284654u
 #define C_SUCCESS  0x34D399u
 #define C_WARNING  0xFBBF24u
-#define C_DANGER   0xF87171u
+#define C_DANGER   0xFF0000u   /* a pure red: the web page's softer #F87171 reads pink on the LCDs */
 #define C_ORANGE   0xFB923Cu
 #define HUD_AUTO   0xFF000000u   /* "use the default colour" */
 #define C_ACCENT   C_P400   /* BRAND_ACCENT */

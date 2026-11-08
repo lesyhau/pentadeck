@@ -47,6 +47,8 @@ typedef struct {
     uint8_t idle_brightness;         /* 0..100 %, the screens' level in low power (never above the normal one) */
     /* v9 */
     bool mic_stream;                 /* PCs may stream the mic (stream.c); the device's own uses don't change */
+    /* v10 */
+    char audio_view[4];              /* the AUDIO screen: "eq" (16-band equaliser) or "vu" (a needle VU meter) */
 } tg_settings_t;
 
 esp_err_t settings_init(void);                 /* load from NVS (or defaults) */

@@ -19,7 +19,7 @@ for your computers:
 | **CPU** | load dial, temperature, RAM, uptime, with the CPU's name as the title |
 | **Clock** | time, date, outside temperature and humidity (Open‑Meteo), the logo |
 | **GPU** | load dial, temperatures, VRAM, with the GPU's name as the title |
-| **Audio** | an 18‑band equaliser and the room's loudness in dBA, from the built‑in mic |
+| **Audio** | an 18‑band equaliser or a needle VU meter, and the room's loudness in dBA, from the built‑in mic |
 
 The order is a setting, and any screen can be turned off.
 
@@ -32,7 +32,7 @@ The order is a setting, and any screen can be turned off.
   - The buzzer stays quiet during night hours.
 - **The LED chain** (both side strips, the back and the buttons board) can:
   - show CPU and GPU load as meters, with the home lab's health on the back;
-  - act as a music visualiser;
+  - act as a music visualiser: all three strips one loudness meter;
   - give a steady glow;
   - stay off.
 - **A Wi‑Fi microphone for your PC.** The stats agent can play the device's mic into a virtual
@@ -67,7 +67,7 @@ The order is a setting, and any screen can be turned off.
     24‑hour planner shows who is at work or awake when, and left/right shift every clock to plan a call.
   - **Sound level:** dBA or dBZ, with max, min, Leq and a 16‑band spectrum across three screens.
   - **Stars:** a starfield through all five screens that speeds up with the music.
-  - **Settings:** brightness, LEDs, volume, alerts, key beep, 12/24 h, edited on the device.
+  - **Settings:** brightness, LEDs, volume, alerts, key beep, 12/24 h, the AUDIO screen's view, edited on the device.
 
   The buttons work the same way in every mode:
   - **LIGHT** gives full brightness for 10 s; a long press turns the LEDs off or on.

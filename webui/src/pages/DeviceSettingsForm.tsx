@@ -50,6 +50,7 @@ function DeckPreview({ layout }: { layout: string[] }) {
 export function DisplaySection({ draft, set, errors, panels }: FormProps) {
   const options = panels.map(p => ({ value: p, label: PANEL_NAMES[p] ?? p }))
   const screensId = useId()
+  const audioId = useId()
   const idleId = useId()
   const setNight = (on: boolean) => {
     // Turned on with no window yet: the usual night, ready to adjust.
@@ -121,8 +122,26 @@ export function DisplaySection({ draft, set, errors, panels }: FormProps) {
           ))}
         </ul>
       </Field>
+
+      <Field id={audioId} group label="Audio screen">
+        <Segmented
+          labelledBy={`${audioId}-label`}
+          value={draft.audio_view}
+          onChange={v => set('audio_view', v)}
+          options={AUDIO_VIEWS}
+        />
+        <p key={draft.audio_view} className="pd-fade-in mt-2 min-h-[2lh] max-w-[60ch] text-[13px] leading-snug text-ink-2">
+          {AUDIO_HINTS[draft.audio_view] ?? ''}
+        </p>
+      </Field>
     </Card>
   )
+}
+
+const AUDIO_VIEWS = [{ value: 'eq', label: 'Equaliser' }, { value: 'vu', label: 'VU meter' }]
+const AUDIO_HINTS: Record<string, string> = {
+  eq: '16 bands from 50 Hz to 12 kHz, each with a falling peak cap.',
+  vu: 'A needle VU meter that swings like a real one: normal listening sits below 0, loud music swings into the red.',
 }
 
 // -- LEDs -----------------------------------------------------------------------------------------

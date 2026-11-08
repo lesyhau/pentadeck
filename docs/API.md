@@ -43,6 +43,7 @@ The device serves everything on port 80, except the microphone stream (port 8081
   "tuner_a4": 440, "metro_bpm": 100, "timer_min": 5,
   "idle_min": 10, "idle_brightness": 10,
   "mic_stream": true,
+  "audio_view": "eq",
   "world_names": ["LONDON", "NEW YORK"], "world_tz": ["GMT0BST,M3.5.0/1,M10.5.0", "EST5EDT,M3.2.0,M11.1.0"]
 }
 ```
@@ -54,11 +55,12 @@ The device serves everything on port 80, except the microphone stream (port 8081
 | `lat`, `lon` | the location for the weather. `0, 0` means not set. |
 | `night_start`, `night_end` | `HH:MM`. Empty means no night window. During the window the screens and LEDs dim and the buzzer stays quiet. |
 | `layout` | the five screens from left to right, each one of `lab`, `cpu`, `nav` (clock), `gpu`, `audio`, `off` |
-| `led_mode` | one of `off`, `glow`, `status`, `music` |
+| `led_mode` | one of `off`, `glow`, `status`, `music` (all three strips one loudness meter, no load alerts) |
 | `world_names`, `world_tz` | the World mode's two other places: a name (up to 15 letters) and a POSIX time zone each. Daylight saving works with the `Mm.w.d` rules. |
 | `tuner_a4`, `metro_bpm`, `timer_min` | what the tuner, metronome and timer were left at (saved 2.5 s after the last button press) |
 | `idle_min` | low power after this many minutes with no sign of anyone (no sound above the room's background, no button, no keyboard or mouse on a PC whose agent reports `input_idle_s`), 0..120; 0 = never. Day or night doesn't matter. See [Low power](#low-power). |
 | `mic_stream` | PCs may stream the mic (port 8081). Off refuses new streams and cuts open ones; the device's own uses of the mic (equaliser, tuner, low‑power wake‑up) carry on |
+| `audio_view` | the AUDIO screen: `eq` (the 16‑band equaliser) or `vu` (a needle VU meter; 0 VU is where the LED meters turn orange). Also in the device's setup menu as AUDIO VIEW |
 | `idle_brightness` | the screens' level in low power, 0..100 % (never brighter than the normal or night level) |
 | `alarm_days` | which days the alarm rings: bit 0 = Monday … bit 6 = Sunday (31 = weekdays, 96 = weekends, 127 = every day) |
 

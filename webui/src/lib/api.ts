@@ -70,6 +70,8 @@ export interface DeviceSettings {
   idle_brightness?: number
   /** PCs may stream the mic over Wi-Fi (firmware 0.17+). */
   mic_stream?: boolean
+  /** The AUDIO screen: 'eq' (16-band equaliser) or 'vu' (a needle VU meter) (firmware 0.18+). */
+  audio_view?: string
   led_modes?: string[]
   panels?: string[]
 }
@@ -81,7 +83,7 @@ export const LED_HINTS: Record<string, string> = {
   off: 'All LEDs off, including the buttons board.',
   glow: 'A steady teal glow. The side strips still flash on high CPU or GPU load.',
   status: 'Left strip = CPU load, right strip = GPU load (orange from 60 %, red from 80 %). Back = home lab health.',
-  music: 'Side strips = loudness meters, back = spectrum. The side strips still flash on high CPU or GPU load.',
+  music: 'All three strips are one loudness meter: the sides fill from the bottom, the back from the middle out. No load alerts here, so they always follow the sound.',
 }
 
 /** GET /status: the firmware's own record of itself (no token needed). */
