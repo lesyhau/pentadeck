@@ -1,4 +1,4 @@
-import { LED_PRESETS, type DeviceSettings } from './api'
+import { LED_DEFAULT_COLOUR, LED_PRESETS, type DeviceSettings } from './api'
 
 /**
  * THE FORM, as edited: the device's settings with the typed numbers kept as the text being typed
@@ -28,6 +28,9 @@ export interface Draft {
   led_left: string
   led_back: string
   led_right: string
+  led_left_color: string
+  led_back_color: string
+  led_right_color: string
   led_brightness: number
   key_beep: boolean
   chime: boolean
@@ -75,6 +78,9 @@ export function toDraft(s: DeviceSettings): Draft {
     led_left: s.led_left ?? left,
     led_back: s.led_back ?? back,
     led_right: s.led_right ?? right,
+    led_left_color: s.led_left_color ?? LED_DEFAULT_COLOUR,
+    led_back_color: s.led_back_color ?? LED_DEFAULT_COLOUR,
+    led_right_color: s.led_right_color ?? LED_DEFAULT_COLOUR,
     led_brightness: s.led_brightness,
     key_beep: s.key_beep ?? true,
     chime: s.chime ?? false,
@@ -117,6 +123,9 @@ export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'led_eff
     led_left: d.led_left,
     led_back: d.led_back,
     led_right: d.led_right,
+    led_left_color: d.led_left_color,
+    led_back_color: d.led_back_color,
+    led_right_color: d.led_right_color,
     led_brightness: d.led_brightness,
     key_beep: d.key_beep,
     chime: d.chime,

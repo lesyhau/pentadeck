@@ -38,6 +38,7 @@ The device serves everything on port 80, except the microphone stream (port 8081
   "buzzer": true, "buzzer_volume": 40, "quiet_night": true,
   "alert_cpu_temp": 90, "alert_gpu_temp": 85, "alert_vram_temp": 95,
   "led_left": "cpu", "led_back": "lab", "led_right": "gpu", "led_brightness": 40,
+  "led_left_color": "#2a8cb2", "led_back_color": "#2a8cb2", "led_right_color": "#2a8cb2",
   "key_beep": true,
   "chime": false, "alarm_on": true, "alarm_time": "07:00", "alarm_days": 31,
   "tuner_a4": 440, "metro_bpm": 100, "timer_min": 5,
@@ -56,7 +57,8 @@ The device serves everything on port 80, except the microphone stream (port 8081
 | `lat`, `lon` | the location for the weather. `0, 0` means not set. |
 | `night_start`, `night_end` | `HH:MM`. Empty means no night window. During the window the screens and LEDs dim and the buzzer stays quiet. |
 | `layout` | the five screens from left to right, each one of `lab`, `cpu`, `nav` (clock), `gpu`, `audio`, `off` |
-| `led_left`, `led_back`, `led_right` | each LED zone's effect: `off`, `glow` (steady teal), `breathe` (teal fading in and out), `rainbow`, `cpu` or `gpu` (the PC's load as a meter; orange from 60 % load or 75 °C, red from 80 % or 88 °C, blinking on a load alert), `lab` (the home lab's health), `music` (the room's loudness). The buttons board's LEDs stay on unless all three are `off` |
+| `led_left`, `led_back`, `led_right` | each LED zone's effect: `off`, `glow` (steady), `breathe` (fading in and out), `wave` (a band of light running round), `comet` (a bright dot with a fading tail), `sparkle` (random twinkles), `pulse` (as bright as the room is loud), `fire` (flickering embers), `rainbow`, `cpu` or `gpu` (the PC's load as a meter; orange from 60 % load or 75 °C, red from 80 % or 88 °C, blinking on a load alert), `lab` (the home lab's health), `music` (a loudness meter). The buttons board's LEDs stay on unless all three are `off` |
+| `led_left_color`, `led_back_color`, `led_right_color` | each zone's colour, `#rrggbb` (teal `#2a8cb2` by default): what the effects show, and the "all is well" colour of the meters. `fire` and `rainbow` bring their own colours |
 | `led_mode` | a preset for all three zones: `off`, `glow`, `status` (`cpu`, `lab`, `gpu`) or `music`. Read back as the preset the zones match, or `custom`. Zones sent beside it win. The device's setup menu (LED MODE) and a long LIGHT press work with the presets |
 | `world_names`, `world_tz` | the World mode's two other places: a name (up to 15 letters) and a POSIX time zone each. Daylight saving works with the `Mm.w.d` rules. |
 | `world_order` | which clock the World mode shows on screens 2, 3 and 4: `0` = home, `1` and `2` = the two places, each once. `[1, 0, 2]` puts home in the middle. The AWAKE planner lists them top to bottom in the same order |

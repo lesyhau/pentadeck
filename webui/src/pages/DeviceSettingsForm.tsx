@@ -2,7 +2,7 @@ import { useId, useState } from 'react'
 import {
   Button, ButtonRow, Card, Field, Input, NoticeLine, Reveal, Segmented, Select, Slider, SwitchRow, cn, type Note,
 } from '../ui'
-import { LED_EFFECT_HINTS, LED_EFFECT_NAMES, PANEL_NAMES, SLOT_NAMES } from '../lib/api'
+import { LED_EFFECT_HINTS, LED_EFFECT_NAMES, LED_OWN_COLOURS, PANEL_NAMES, SLOT_NAMES } from '../lib/api'
 import type { Draft, DraftErrors } from '../lib/form'
 
 /**
@@ -147,10 +147,34 @@ const AUDIO_HINTS: Record<string, string> = {
 // -- LEDs -----------------------------------------------------------------------------------------
 
 const LED_ZONES = [
-  { key: 'led_left', label: 'Left strip' },
-  { key: 'led_back', label: 'Back light' },
-  { key: 'led_right', label: 'Right strip' },
+  { key: 'led_left', color: 'led_left_color', label: 'Left strip' },
+  { key: 'led_back', color: 'led_back_color', label: 'Back light' },
+  { key: 'led_right', color: 'led_right_color', label: 'Right strip' },
 ] as const
+
+/** A colour well: the system's colour picker behind a 44 px swatch. */
+function ColourWell({ value, onChange, label, disabled }: { value: string; onChange: (v: string) => void; label: string; disabled?: boolean }) {
+  return (
+    <label
+      className={cn(
+        'relative block h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-line-strong',
+        'focus-within:shadow-[0_0_0_3px_rgb(var(--pd-accent)/0.22)]',
+        disabled && 'cursor-not-allowed opacity-30',
+      )}
+      style={{ background: value }}
+      title={disabled ? 'This effect has its own colours' : label}
+    >
+      <input
+        type="color"
+        aria-label={label}
+        value={value}
+        disabled={disabled}
+        onChange={e => onChange(e.target.value)}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+      />
+    </label>
+  )
+}
 
 export function LedSection({ draft, set, ledEffects, onTest, onResume, busy, notice }: FormProps & {
   onTest: () => void
@@ -161,16 +185,19 @@ export function LedSection({ draft, set, ledEffects, onTest, onResume, busy, not
   const zonesId = useId()
   const options = ledEffects.map(e => ({ value: e, label: LED_EFFECT_NAMES[e] ?? e }))
   return (
-    <Card title="LEDs" caption="An effect for each strip. The buttons stay lit unless all three are off.">
+    <Card title="LEDs" caption="An effect and a colour for each strip. The buttons stay lit unless all three are off.">
       <Field id={zonesId} group label="Effects">
         <ul className="divide-y divide-line rounded-lg border border-line">
-          {LED_ZONES.map(({ key, label }) => (
-            <li key={key} className="flex items-center justify-between gap-3 py-2 pl-3 pr-2">
+          {LED_ZONES.map(({ key, color, label }) => (
+            <li key={key} className="flex items-center justify-between gap-2 py-2 pl-3 pr-2 sm:gap-3">
               <div className="min-w-0">
                 <div className="truncate text-[15px] font-medium text-ink">{label}</div>
                 <div key={draft[key]} className="pd-fade-in text-xs leading-snug text-ink-2">{LED_EFFECT_HINTS[draft[key]] ?? ''}</div>
               </div>
-              <Select className="w-40 shrink-0" ariaLabel={label} value={draft[key]} options={options} onChange={v => set(key, v)} />
+              <div className="flex shrink-0 items-center gap-2">
+                <Select className="w-32 sm:w-36" ariaLabel={`${label} effect`} value={draft[key]} options={options} onChange={v => set(key, v)} />
+                <ColourWell label={`${label} colour`} value={draft[color]} onChange={v => set(color, v)} disabled={LED_OWN_COLOURS.includes(draft[key])} />
+              </div>
             </li>
           ))}
         </ul>

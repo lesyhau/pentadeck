@@ -2,7 +2,7 @@ import { Button, Card, Notice, PageTitle, Skeleton, type Note } from '../ui'
 import { DataSection, DisplaySection, LedSection, MicSection, SoundsSection, WorldSection } from './DeviceSettingsForm'
 import type { Settings } from '../hooks/useSettings'
 
-const DEFAULT_LED_EFFECTS = ['off', 'glow', 'breathe', 'rainbow', 'cpu', 'gpu', 'lab', 'music']
+const DEFAULT_LED_EFFECTS = ['off', 'glow', 'breathe', 'wave', 'comet', 'sparkle', 'pulse', 'fire', 'rainbow', 'cpu', 'gpu', 'lab', 'music']
 const DEFAULT_PANELS = ['lab', 'cpu', 'nav', 'gpu', 'audio', 'off']
 
 /** THE SETTINGS PAGE: the cards over the draft the App keeps; the save bar is the App's too. */

@@ -31,11 +31,11 @@ The order is a setting, and any screen can be turned off.
     UPS or laptop losing AC power.
   - The buzzer stays quiet during night hours.
 - **The LED chain** (both side strips, the back and the buttons board): the left strip, the back
-  light and the right strip each pick their own effect:
+  light and the right strip each pick their own effect and colour:
   - CPU or GPU load as a meter, turning orange and red when busy or hot;
   - the home lab's health;
-  - a music visualiser (the room's loudness);
-  - a steady glow, a slow breath or a rainbow;
+  - a music meter, or a pulse that brightens with the sound;
+  - glow, breathe, wave, comet, sparkle, fire or rainbow;
   - off.
 - **A Wi‑Fi microphone for your PC.** The stats agent can play the device's mic into a virtual
   audio cable, so Zoom, Discord or OBS can use it ([agent/README.md](agent/README.md#microphone)).

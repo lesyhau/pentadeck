@@ -51,10 +51,12 @@ typedef struct {
     /* v10 */
     char audio_view[4];              /* the AUDIO screen: "eq" (16-band equaliser) or "vu" (a needle VU meter) */
     /* v11 */
-    char led_zone[3][8];             /* each LED zone's effect (LED_ZONE_*): off, glow, breathe, rainbow, cpu, gpu,
-                                        lab, music */
+    char led_zone[3][8];             /* each LED zone's effect (LED_ZONE_*), one of settings.c's LED_EFFECTS */
     char world_order[4];             /* the World mode's clocks on screens 2, 3, 4: a digit each, 0 = home,
                                         1 and 2 = world_name[0] and [1]; "102" puts home in the middle */
+    /* v12 */
+    uint32_t led_color[3];           /* each LED zone's colour, 0xRRGGBB: what glow, breathe, wave, comet, sparkle
+                                        and pulse show, and the "all is well" colour of the meters */
 } tg_settings_t;
 
 enum { LED_ZONE_LEFT, LED_ZONE_BACK, LED_ZONE_RIGHT };

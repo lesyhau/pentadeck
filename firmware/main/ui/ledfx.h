@@ -5,16 +5,23 @@
  * column, on the back edge, bottom to top), LED12..22 (the long column, on the front edge, top to
  * bottom) and LED23 (bottom, middle). Meters fill the side strips by row (ledfx.c knows each LED's),
  * so both reach the same height at the same level.
- * Each zone (left strip, back light, right strip) runs its own effect (settings "led_left", "led_back",
- * "led_right"); meters fill the sides from the bottom and the back from the middle out:
+ * Each zone (left strip, back light, right strip) runs its own effect in its own colour (settings
+ * "led_left", "led_back", "led_right" and "led_*_color", teal by default). Meters fill the sides from
+ * the bottom and the back from the middle out; the moving effects run round a side board's loop of
+ * LEDs and along the back from left to right:
  *   off      dark
- *   glow     a steady teal
- *   breathe  teal, slowly brightening and dimming
- *   rainbow  the colour wheel rolling along the zone
+ *   glow     steady
+ *   breathe  slowly brightening and dimming
+ *   wave     a band of light running round
+ *   comet    a bright head with a fading tail
+ *   sparkle  random LEDs flashing over a dim glow
+ *   pulse    as bright as the room is loud
+ *   fire     flickering embers (its own colours)
+ *   rainbow  the colour wheel rolling along the zone (its own colours)
  *   cpu/gpu  the PC's CPU or GPU load as a meter; orange from 60 % load or 75 °C, red from 80 % or
  *            88 °C (the screens' thresholds); a load alert blinks like the screens
- *   lab      the home lab's health: teal breathing, amber on battery, a red pulse when something is down
- *   music    a loudness meter from the mic
+ *   lab      the home lab's health: the colour breathing, amber on battery, a red pulse when something is down
+ *   music    a loudness meter from the mic, turning orange and red when loud
  * The buttons board's LEDs (GPIO44, single colour) stay on at the LED brightness unless every zone is off. */
 #include <stdbool.h>
 #include <stdint.h>
