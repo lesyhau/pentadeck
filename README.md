@@ -9,6 +9,14 @@
 
 ![The five screens: home lab, CPU, clock, GPU, audio](docs/screens.png)
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=3ZKojGQHNIs">
+    <img alt="Watch Pentadeck on YouTube" src="https://img.youtube.com/vi/3ZKojGQHNIs/maxresdefault.jpg" width="640">
+  </a>
+  <br>
+  <a href="https://www.youtube.com/watch?v=3ZKojGQHNIs">▶ Watch it in action on YouTube</a>
+</p>
+
 Pentadeck replaces the firmware of a [Divoom Times Gate](https://divoom.com/) (an ESP32‑S3 with
 five 128×128 screens, LED strips, a buzzer and a microphone) with a spaceship‑cockpit dashboard
 for your computers:
