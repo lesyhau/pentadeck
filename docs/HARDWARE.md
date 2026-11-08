@@ -49,7 +49,7 @@ Quiet room ≈ −62…−66 dBFS (RMS).
 | Buttons-board LEDs | **44** (= RXD0): plain on/off (stock `divoom_screen_ctrl_key_pad` → `gpio_set_level(44, on)`); we PWM it (LEDC timer 3 / ch 3), so console input is gone — ROM download mode unaffected. Confirmed lit 2026-11-07 |
 | Boot (IO0) | SW1 pads (unpopulated) — short to GND at power-up for download mode |
 | USB D-/D+ | 19 / 20 — wired to the mic (I2S BCK / DATA), so the USB port is power-only |
-| RGB LEDs (side strips, back, buttons board) | **0**: one WS2812-style chain. Stock: `divoom_spi_OnelineLED_init` = SPI3, MOSI GPIO0, 8 MHz, max transfer 1440 B. We drive it with RMT (10 MHz, GRB). **45 LEDs: left strip 0–14 bottom→top, back 15–29 left→right (seen from the front), right strip 30–44 top→bottom.** Buttons-board LEDs are NOT on this chain |
+| RGB LEDs (side strips, back, buttons board) | **0**: one WS2812-style chain. Stock: `divoom_spi_OnelineLED_init` = SPI3, MOSI GPIO0, 8 MHz, max transfer 1440 B. We drive it with RMT (10 MHz, GRB). **45 LEDs: left side board 0–19, back light 20–24, right side board 25–44.** The side boards ("TimesGate LED-R", alike on both sides) carry 20 LEDs each, chained in the order of their printed names: LED2, 4, 6–11 (back edge, bottom→top), LED12–22 (front edge, top→bottom), LED23 (bottom, middle). Mapped 2026-11-08 with the board out. Buttons-board LEDs are NOT on this chain |
 | Buttons (top, left to right: LIGHT, left, power, right, MODE) | **8** (ADC1 channel 7): one resistor ladder, 12 dB attenuation. Readings: none 4095, left ~15, LIGHT ~340, power ~695, MODE ~1045, right ~1435 (one button at a time) |
 | Unknown / to check | 11, 12 (both float around 500 on the ADC; perhaps the ambient light sensor) |
 

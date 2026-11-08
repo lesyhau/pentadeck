@@ -175,7 +175,7 @@ static void ring_end(bool snooze)
 
 /* ------------------------------------------------------------------ setup */
 
-#define SETUP_ITEMS 12
+#define SETUP_ITEMS 13
 static int s_sel;
 static bool s_edit;
 static tg_settings_t s_draft;
@@ -185,7 +185,7 @@ static const char *item_name(int i)
 {
     static const char *n[SETUP_ITEMS] = { "BRIGHTNESS", "NIGHT LEVEL", "LED MODE", "LED LEVEL", "VOLUME",
                                           "ALERTS", "KEY BEEP", "QUIET NIGHT", "LOW POWER", "IDLE LEVEL",
-                                          "CLOCK", "DEVICE" };
+                                          "CLOCK", "AUDIO VIEW", "DEVICE" };
     return n[i];
 }
 
@@ -204,6 +204,7 @@ static void item_value(const tg_settings_t *s, int i, char *out, size_t n, float
     case 8: if (s->idle_min) snprintf(out, n, "%d MIN", s->idle_min); else snprintf(out, n, "OFF"); break;
     case 9: snprintf(out, n, "%d%%", s->idle_brightness); *bar = s->idle_brightness / 100.0f; break;
     case 10: snprintf(out, n, "%s", s->hour24 ? "24H" : "12H"); break;
+    case 11: snprintf(out, n, "%s", strcmp(s->audio_view, "vu") == 0 ? "VU METER" : "EQ"); break;
     default: snprintf(out, n, "%s", app_fw_version()); break;
     }
 }
@@ -236,6 +237,7 @@ static void item_step(tg_settings_t *s, int i, int d)
     }
     case 9: s->idle_brightness = (uint8_t)clampi(s->idle_brightness + d * 5, 0, 100); break;
     case 10: s->hour24 = !s->hour24; break;
+    case 11: strlcpy(s->audio_view, strcmp(s->audio_view, "vu") == 0 ? "eq" : "vu", sizeof s->audio_view); break;
     default: break;
     }
 }

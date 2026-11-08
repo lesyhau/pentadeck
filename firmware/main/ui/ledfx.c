@@ -47,7 +47,7 @@ void ledfx_sleep(bool sleep)
 }
 static uint32_t s_px[LED_COUNT];
 static int s_alert[2];             /* load alert level (0, 1 orange, 2 red) for CPU and GPU, with hysteresis */
-static float s_level, s_peak, s_db = -90.0f, s_band[LED_STRIP];
+static float s_level, s_peak, s_db = -90.0f;
 
 void ledfx_hold(uint32_t ms)
 {
@@ -71,16 +71,29 @@ static uint32_t mix(uint32_t a, uint32_t b, float t)
     return (uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)bl;
 }
 
-/* i-th LED of a side strip counted from the bottom */
-static void side_set(int right, int i, uint32_t c)
+/* Where each side LED sits, in chain order (ledfx.h): its row, 0 = bottom .. 9 = top. Both side
+ * boards are alike; rows from a straight-on photo of the board, 2026-11-08:
+ *   LED2..11   the short column, on the back edge, bottom to top
+ *   LED12..22  the long column, on the front edge, top to bottom
+ *   LED23      the bottom, in the middle */
+static const uint8_t ROW_OF[LED_STRIP] = {
+    0, 2, 4, 5, 6, 7, 7, 8,                 /* LED2, 4, 6..11 */
+    9, 8, 7, 6, 5, 4, 4, 3, 2, 1, 0,        /* LED12..22 */
+    1,                                      /* LED23 */
+};
+
+/* Row `row` (0 = bottom .. LED_ROWS - 1) of a side strip: every LED in it (one, two or three, on either
+ * edge). The callers set all rows each frame, so every LED gets a colour. */
+static void side_set(int right, int row, uint32_t c)
 {
-    if (i < 0 || i >= LED_STRIP) return;
-    s_px[right ? LED_RIGHT0 + LED_STRIP - 1 - i : LED_LEFT0 + i] = c;
+    for (int k = 0; k < LED_STRIP; k++) {
+        if (ROW_OF[k] == row) s_px[(right ? LED_RIGHT0 : LED_LEFT0) + k] = c;
+    }
 }
 
 static void side_fill(int right, uint32_t c)
 {
-    for (int i = 0; i < LED_STRIP; i++) side_set(right, i, c);
+    for (int i = 0; i < LED_ROWS; i++) side_set(right, i, c);
 }
 
 /* Same thresholds and hysteresis as the screens: 60 % orange, 80 % red. */
@@ -111,10 +124,10 @@ static void load_meter(int right, float load, int lv, uint32_t ms)
 {
     if (isnan(load)) { side_fill(right, 0); return; }
     if (lv && !blink_on(lv, ms)) { side_fill(right, scale(lv == 2 ? RED : ORANGE, 0.15f)); return; }
-    int lit = (int)lroundf(clamp01(load / 100.0f) * LED_STRIP);
+    int lit = (int)lroundf(clamp01(load / 100.0f) * LED_ROWS);
     if (lit < 1) lit = 1;
-    for (int i = 0; i < LED_STRIP; i++) {
-        side_set(right, i, i < lit ? (lv ? (lv == 2 ? RED : ORANGE) : meter_color((float)i / (LED_STRIP - 1))) : TEAL_LO);
+    for (int i = 0; i < LED_ROWS; i++) {
+        side_set(right, i, i < lit ? (lv ? (lv == 2 ? RED : ORANGE) : meter_color((i + 0.5f) / LED_ROWS)) : TEAL_LO);
     }
 }
 
@@ -137,33 +150,36 @@ static void back_health(const host_stats_t *lab, uint32_t ms)
     else if (!lab->ok || svc_down) { c = RED; k = 0.35f + 0.65f * (0.5f + 0.5f * sinf(ms * 0.0042f)); }   /* ~1.5 s pulse */
     else if (lab->has_battery && !lab->ac) c = AMBER;
     else { c = TEAL; k = 0.75f + 0.25f * sinf(ms * 0.0013f); }                                           /* slow breath */
-    for (int i = 0; i < LED_STRIP; i++) s_px[LED_BACK0 + i] = scale(c, k);
+    for (int i = 0; i < LED_BACK_N; i++) s_px[LED_BACK0 + i] = scale(c, k);
+}
+
+/* One step of a loudness meter: `steps` LEDs, lit up to `level` (0..1), the peak dot above. Each LED
+ * takes the colour of the level it lights at, so every strip turns orange and red at the same loudness. */
+static uint32_t meter_led(int k, int steps, float level, float peak)
+{
+    int lit = (int)lroundf(level * steps), pk = (int)lroundf(peak * steps) - 1;
+    if (k < lit) return meter_color((k + 0.5f) / steps);
+    return k == pk ? 0x808080u : 0;
 }
 
 static void music(const mic_snapshot_t *m)
 {
-    /* loudness, low-passed like the audio panel, with a falling peak dot */
+    /* loudness, low-passed like the audio panel, with a falling peak dot: the same meter on all three
+     * strips, the sides filling from the bottom, the back from the middle out to both ends */
     if (!isnan(m->dbfs)) s_db += (m->dbfs - s_db) * 0.3f;
     float lf = clamp01((s_db + 75.0f) / 60.0f);
     s_level = lf > s_level ? s_level + (lf - s_level) * 0.6f : fmaxf(lf, s_level - 0.03f);
     s_peak = s_level > s_peak ? s_level : fmaxf(0, s_peak - 0.01f);
-    int lit = (int)lroundf(s_level * LED_STRIP), pk = (int)lroundf(s_peak * LED_STRIP) - 1;
-    for (int side = 0; side < 2; side++) {
-        for (int i = 0; i < LED_STRIP; i++) {
-            uint32_t c = i < lit ? meter_color((float)i / (LED_STRIP - 1)) : 0;
-            if (i == pk && pk >= lit) c = 0x808080;
-            side_set(side, i, c);
-        }
+    for (int i = 0; i < LED_ROWS; i++) {
+        uint32_t c = meter_led(i, LED_ROWS, s_level, s_peak);
+        side_set(0, i, c);
+        side_set(1, i, c);
     }
-    /* back: 16 bands folded onto 15 LEDs, brightness = band level, colour teal -> violet across */
-    for (int i = 0; i < LED_STRIP; i++) {
-        float pos = i * (MIC_BANDS - 1) / (float)(LED_STRIP - 1);
-        int b0 = (int)pos;
-        int b1 = b0 + 1 < MIC_BANDS ? b0 + 1 : b0;
-        float db = m->bands[b0] + (m->bands[b1] - m->bands[b0]) * (pos - b0);
-        float f = clamp01((db - MIC_BAND_FLOOR_DB) / (MIC_BAND_TOP_DB - MIC_BAND_FLOOR_DB));
-        s_band[i] = f > s_band[i] ? f : fmaxf(0, s_band[i] - 0.05f);
-        s_px[LED_BACK0 + i] = scale(mix(TEAL, 0x8040FF, (float)i / (LED_STRIP - 1)), s_band[i] * s_band[i]);
+    const int mid = LED_BACK_N / 2;                      /* the back: the middle LED and 2 either side */
+    for (int k = 0; k <= mid; k++) {
+        uint32_t c = meter_led(k, mid + 1, s_level, s_peak);
+        s_px[LED_BACK0 + mid - k] = c;
+        s_px[LED_BACK0 + mid + k] = c;
     }
 }
 
@@ -177,22 +193,22 @@ static void scene_tuner(float cents)
         for (int i = 0; i < LED_COUNT; i++) s_px[i] = GREEN;
         return;
     }
-    int lit = (int)lroundf(clamp01(fabsf(cents) / 50.0f) * LED_STRIP);
+    int lit = (int)lroundf(clamp01(fabsf(cents) / 50.0f) * LED_ROWS);
     if (lit < 1) lit = 1;
     int side = cents > 0;                                /* flat: left strip, sharp: right */
-    for (int i = 0; i < LED_STRIP; i++) side_set(side, i, i < lit ? (fabsf(cents) > 25 ? ORANGE : TEAL) : TEAL_LO);
-    for (int i = 0; i < LED_STRIP; i++) side_set(!side, i, TEAL_LO);
-    for (int i = 0; i < LED_STRIP; i++) s_px[LED_BACK0 + i] = scale(TEAL, 0.12f);
+    for (int i = 0; i < LED_ROWS; i++) side_set(side, i, i < lit ? (fabsf(cents) > 25 ? ORANGE : TEAL) : TEAL_LO);
+    for (int i = 0; i < LED_ROWS; i++) side_set(!side, i, TEAL_LO);
+    for (int i = 0; i < LED_BACK_N; i++) s_px[LED_BACK0 + i] = scale(TEAL, 0.12f);
 }
 
 static void scene_progress(float left, bool running, uint32_t ms)
 {
-    int lit = (int)ceilf(clamp01(left) * LED_STRIP);
+    int lit = (int)ceilf(clamp01(left) * LED_ROWS);
     float k = running ? 1.0f : 0.45f + 0.35f * (0.5f + 0.5f * sinf(ms * 0.004f));   /* paused: breathing */
     for (int side = 0; side < 2; side++) {
-        for (int i = 0; i < LED_STRIP; i++) side_set(side, i, i < lit ? scale(TEAL, k) : TEAL_LO);
+        for (int i = 0; i < LED_ROWS; i++) side_set(side, i, i < lit ? scale(TEAL, k) : TEAL_LO);
     }
-    for (int i = 0; i < LED_STRIP; i++) s_px[LED_BACK0 + i] = scale(TEAL, 0.15f);
+    for (int i = 0; i < LED_BACK_N; i++) s_px[LED_BACK0 + i] = scale(TEAL, 0.15f);
 }
 
 static void scene_beat(uint32_t at_ms, bool accent, uint32_t ms)
@@ -244,10 +260,9 @@ static void ledfx_task(void *arg)
             float g = pc.ok && pc.has_gpu ? pc.gpu.load : NAN;
             load_meter(1, g, alert_level(1, g), ms);
             back_health(&lab, ms);
-        } else if (strcmp(s.led_mode, "music") == 0) {
+        } else if (strcmp(s.led_mode, "music") == 0) {   /* no load alerts here: the strips stay on the music */
             mic_get(&m);
             music(&m);
-            alert_overlay(&pc, ms);
         } else {                                                      /* glow */
             for (int i = 0; i < LED_COUNT; i++) s_px[i] = TEAL;
             alert_overlay(&pc, ms);

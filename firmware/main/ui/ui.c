@@ -2,7 +2,7 @@
  * The cockpit on the five screens:
  *
  *   HOME LAB (CPU, RAM, disk, battery) | CPU (load, temp, RAM) | CLOCK (emblem, HH:MM,
- *   date, weather + humidity) | GPU (load, temps, VRAM) | AUDIO (16-band EQ + loudness)
+ *   date, weather + humidity) | GPU (load, temps, VRAM) | AUDIO (16-band EQ or a VU meter, + loudness)
  *
  * The layout is a setting. A ~30 fps loop snapshots the data and re-renders a panel only when its
  * content or its animation step has changed. hud.c draws straight into the display driver's frame
@@ -54,7 +54,7 @@ static host_stats_t s_h[TG_SOURCES];
 static weather_t s_w;
 static mic_snapshot_t s_m;
 static struct tm s_tm;
-static bool s_time_ok, s_hour24;
+static bool s_time_ok, s_hour24, s_audio_vu;
 static uint32_t s_ms, s_settings_gen;
 
 /* performance counters, one-second windows, reported by ui_stats_json() */
@@ -67,6 +67,8 @@ static struct {
 /* audio meter state (smoothed at the frame rate) */
 #define EQ_SEGS 18
 static float s_eq[MIC_BANDS], s_peak[MIC_BANDS], s_level, s_pa = 1e-3f;   /* s_pa: A-weighted power, smoothed */
+static float s_vu_x, s_vu_v;           /* the VU needle: position (1 = 0 VU, as an amplitude) and speed */
+static uint32_t s_vu_ms, s_vu_peak_ms;
 
 /* ------------------------------------------------------------- helpers */
 
@@ -398,13 +400,94 @@ static void audio_update(void)       /* fast attack, slow release, falling peak 
     s_level = lf > s_level ? s_level + (lf - s_level) * 0.5f : fmaxf(lf, s_level - 0.015f);
 }
 
-static void draw_audio(hud_fb_t *l)
+/* The VU meter. 0 VU is -29 dBFS (about 90 dB SPL unweighted): music at a normal listening level sits
+ * well below it, loud music swings into the red. PEAK lights when a block goes 6 dB past 0 VU. The
+ * needle moves like a real VU meter's (IEC 60268-17): a damped spring that
+ * gets 99 % of the way to a new level in 300 ms and overshoots it by about 1 %. */
+#define VU_REF_DBFS (-29.0f)
+#define VU_CX 64.0f
+#define VU_CY 120.0f
+#define VU_SWEEP 38.0f                 /* degrees either side of upright */
+
+static void vu_update(void)
 {
-    hud_frame(l, C_HUD, C_P900, s_ms / 500);
-    /* a PC is streaming the mic: the header says so, in red (stream.c) */
-    bool live = stream_listeners() > 0;
-    hud_header(l, F.b9, live ? "MIC LIVE" : "AUDIO", 12, 2, live ? 'r' : led_side(mic_ok(), 'l'), C_DANGER,
-               live ? C_DANGER : C_LEGIBLE, C_HUD_DIM);
+    uint32_t dt_ms = s_vu_ms ? s_ms - s_vu_ms : 0;
+    s_vu_ms = s_ms;
+    if (dt_ms > 200) dt_ms = 200;       /* after a pause, don't fling the needle */
+    float target = isnan(s_m.dbfs) ? 0 : powf(10.0f, (s_m.dbfs - VU_REF_DBFS) / 20.0f);
+    if (target > 1.6f) target = 1.6f;   /* the needle stops at the pin anyway */
+    const float w = 22.0f, zeta = 0.83f;   /* rad/s; (1 + w t) e^-wt = 1 % at 0.3 s */
+    for (uint32_t t = 0; t < dt_ms; t += 4) {   /* 4 ms steps keep the spring stable */
+        float h = (dt_ms - t < 4 ? dt_ms - t : 4) / 1000.0f;
+        s_vu_v += (w * w * (target - s_vu_x) - 2 * zeta * w * s_vu_v) * h;
+        s_vu_x += s_vu_v * h;
+    }
+    if (s_vu_x < 0) { s_vu_x = 0; s_vu_v = 0; }
+    if (!isnan(s_m.dbfs) && s_m.dbfs >= VU_REF_DBFS + 6.0f) s_vu_peak_ms = s_ms ? s_ms : 1;   /* +6 VU: PEAK */
+}
+
+/* where a level (1 = 0 VU, as an amplitude) sits on the scale, 0..1: a VU scale is even in amplitude,
+ * from -20 VU (0.1) to +3 VU (1.413), so the top 3 dB take up a third of it */
+static float vu_frac(float amp)
+{
+    return (amp - 0.1f) / (1.41254f - 0.1f);
+}
+
+static void vu_point(float frac, float r, float *x, float *y)
+{
+    float a = (-VU_SWEEP + 2 * VU_SWEEP * frac) * (float)M_PI / 180.0f;
+    *x = VU_CX + r * sinf(a);
+    *y = VU_CY - r * cosf(a);
+}
+
+static void draw_vu(hud_fb_t *l)
+{
+    const float R = 78;                 /* the scale's arc */
+    float zero = vu_frac(1.0f), x0, y0, x1, y1;
+    /* the arc, teal up to 0 VU, then a thick red band to +3 */
+    for (int i = 0; i < 32; i++) {
+        float f0 = i / 32.0f, f1 = (i + 1) / 32.0f;
+        vu_point(f0, R, &x0, &y0);
+        vu_point(f1, R, &x1, &y1);
+        hud_line(l, x0, y0, x1, y1, 1.0f, f0 >= zero - 1e-3f ? C_DANGER : C_HUD);
+        if (f1 > zero + 1e-3f) {
+            vu_point(fmaxf(f0, zero), R + 3, &x0, &y0);
+            vu_point(f1, R + 3, &x1, &y1);
+            hud_line(l, x0, y0, x1, y1, 3.0f, C_DANGER);
+        }
+    }
+    /* ticks; the labelled ones longer, and the labels without signs, as on a VU meter's face */
+    static const struct { int8_t db; const char *label; } MARK[] = {
+        { -20, "20" }, { -10, "10" }, { -7, "7" }, { -6, NULL }, { -5, "5" }, { -4, NULL }, { -3, "3" },
+        { -2, NULL }, { -1, "1" }, { 0, "0" }, { 1, "1" }, { 2, "2" }, { 3, "3" },
+    };
+    for (size_t i = 0; i < sizeof MARK / sizeof MARK[0]; i++) {
+        float f = vu_frac(powf(10.0f, MARK[i].db / 20.0f));
+        hud_color_t c = MARK[i].db > 0 ? C_DANGER : MARK[i].db == 0 ? C_INK : C_INK2;
+        vu_point(f, R - (MARK[i].label ? 6 : 4), &x0, &y0);
+        vu_point(f, R, &x1, &y1);
+        hud_line(l, x0, y0, x1, y1, MARK[i].label ? 1.5f : 1.0f, c);
+        if (MARK[i].label) {
+            vu_point(f, R + 10, &x0, &y0);
+            hud_text(l, (int)lroundf(x0), (int)lroundf(y0), MARK[i].label, F.b7,
+                     MARK[i].db > 0 ? C_DANGER : MARK[i].db == 0 ? C_INK : C_CAPTION, "mm", 0);
+        }
+    }
+    hud_text(l, 64, 78, "VU", F.b9, C_LEGIBLE, "mm", 2);
+    /* PEAK: lit for 0.6 s after the level passes +6 VU */
+    bool peak = s_vu_peak_ms && s_ms - s_vu_peak_ms < 600;
+    hud_text(l, 106, 27, "PEAK", F.b7, peak ? C_DANGER : C_CAPTION, "rm", 1);
+    hud_circle(l, 112, 27, 2.5f, peak ? C_DANGER : C_OFF);
+    /* the needle, from its pivot below the face; it can rest a little past either end, on the pins */
+    float f = vu_frac(s_vu_x);
+    f = f < -0.03f ? -0.03f : f > 1.03f ? 1.03f : f;
+    vu_point(f, 28, &x0, &y0);
+    vu_point(f, R + 6, &x1, &y1);
+    hud_line(l, x0, y0, x1, y1, 1.5f, C_INK);
+}
+
+static void draw_eq(hud_fb_t *l)
+{
     /* 16 columns of 18 cells (6x3, 1 px apart). Each column is drawn as a few colour blocks
      * (teal / amber / red / unlit / peak cap), then the gaps between rows are cut with 17 black
      * lines across the whole grid: ~100 rectangles a frame instead of 288. */
@@ -428,6 +511,17 @@ static void draw_audio(hud_fb_t *l)
         hud_rect(l, 9, SEG_TOP(i) - 1, 9 + MIC_BANDS * 7, SEG_TOP(i), C_CANVAS);
     }
 #undef SEG_TOP
+}
+
+static void draw_audio(hud_fb_t *l)
+{
+    hud_frame(l, C_HUD, C_P900, s_ms / 500);
+    /* a PC is streaming the mic: the header says so, in red (stream.c) */
+    bool live = stream_listeners() > 0;
+    hud_header(l, F.b9, live ? "MIC LIVE" : "AUDIO", 12, 2, live ? 'r' : led_side(mic_ok(), 'l'), C_DANGER,
+               live ? C_DANGER : C_LEGIBLE, C_HUD_DIM);
+    if (s_audio_vu) draw_vu(l);
+    else draw_eq(l);
     /* loudness; SPL ~ dBFS + 120 for a typical -26 dBFS @ 94 dB SPL MEMS mic */
     char v[16];
     snprintf(v, sizeof v, "%.0f dBA", 10.0f * log10f(s_pa));
@@ -518,6 +612,7 @@ static void snapshot(void)
         tg_settings_t cfg;
         settings_get(&cfg);
         s_hour24 = cfg.hour24;
+        s_audio_vu = strcmp(cfg.audio_view, "vu") == 0;
         for (int s = 0; s < TG_SCREENS; s++) {
             s_panel[s].kind = kind_of(cfg.layout[s]);
             s_panel[s].key = 0;
@@ -611,6 +706,7 @@ static void ui_task(void *arg)
         s_ms = (uint32_t)(t0 / 1000);
         snapshot();
         audio_update();
+        vu_update();
         modes_update(s_ms);
         if (frame % 4 == 0 || idle || modes_sleeping() != was_asleep) backlight_update();
         ui_mode_t mode = modes_current();
