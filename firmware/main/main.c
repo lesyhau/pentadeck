@@ -53,7 +53,7 @@
 #include "ui/ledfx.h"
 #include "ui/ui.h"
 
-#define FW_VERSION      "0.19.0"
+#define FW_VERSION      "0.20.0"
 #define WIFI_FALLBACK_S 180   /* generous: the device sits at about -80 dBm */
 #define EV_GOT_IP       BIT0
 

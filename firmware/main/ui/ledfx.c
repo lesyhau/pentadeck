@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "esp_random.h"
 #include "esp_timer.h"
 
 #include "core/power.h"
@@ -140,44 +141,117 @@ static bool blink_on(int lv, uint32_t ms)
     return lv == 2 ? (ph % 4) < 2 : ph < 4;
 }
 
-static uint32_t meter_color(float pos)            /* teal, orange from 60 %, red from 80 % */
+static uint32_t meter_color(float pos, uint32_t c)   /* the zone's colour, orange from 60 %, red from 80 % */
 {
-    return pos >= 0.8f ? RED : pos >= 0.6f ? ORANGE : TEAL;
+    return pos >= 0.8f ? RED : pos >= 0.6f ? ORANGE : c;
 }
 
-/* A PC load meter, lit up to the load. Teal while all is well; orange from 60 % load or 75 °C, red
- * from 80 % or 88 °C, the screens' thresholds, so a hot part shows even at a low load (the unlit part
- * takes a glow of the colour too). A load alert blinks like the screen's frame; heat alone is steady. */
-static void fx_load(int z, float load, float temp, int alert, uint32_t ms)
+static float rnd(void)                            /* 0..1 */
+{
+    return (esp_random() >> 8) * (1.0f / 16777216.0f);
+}
+
+/* The zone's LEDs along a path, for the moving effects: a side board in chain order, which runs up
+ * its back edge, down its front edge and ends at the bottom, next to where it began (a loop); the
+ * back light from left to right. */
+static int zone_len(int z)
+{
+    return z == LED_ZONE_BACK ? LED_BACK_N : LED_STRIP;
+}
+
+static int zone_led(int z, int i)
+{
+    return (z == LED_ZONE_BACK ? LED_BACK0 : z == LED_ZONE_RIGHT ? LED_RIGHT0 : LED_LEFT0) + i;
+}
+
+/* A PC load meter, lit up to the load. The zone's colour while all is well; orange from 60 % load or
+ * 75 °C, red from 80 % or 88 °C, the screens' thresholds, so a hot part shows even at a low load (the
+ * unlit part takes a glow of the colour too). A load alert blinks like the screen's frame; heat alone
+ * is steady. */
+static void fx_load(int z, uint32_t col, float load, float temp, int alert, uint32_t ms)
 {
     if (isnan(load)) { zone_fill(z, 0); return; }
     int heat = heat_level(temp), worst = alert > heat ? alert : heat, n = zone_steps(z);
-    uint32_t c = worst == 2 ? RED : worst == 1 ? ORANGE : TEAL;
-    uint32_t unlit = worst ? scale(c, 0.12f) : TEAL_LO;
+    uint32_t c = worst == 2 ? RED : worst == 1 ? ORANGE : col;
+    uint32_t unlit = scale(c, worst ? 0.12f : 0.25f);
     if (alert && !blink_on(alert, ms)) c = scale(c, 0.2f);
     int lit = (int)lroundf(clamp01(load / 100.0f) * n);
     if (lit < 1) lit = 1;
     for (int i = 0; i < n; i++) zone_set(z, i, i < lit ? c : unlit);
 }
 
-/* The home lab's health: teal breathing when well, amber on battery, a red pulse when it or a service is down. */
-static void fx_lab(int z, const host_stats_t *lab, uint32_t ms)
+/* The home lab's health: the zone's colour breathing when well, amber on battery, a red pulse when it
+ * or a service is down. */
+static void fx_lab(int z, uint32_t col, const host_stats_t *lab, uint32_t ms)
 {
     bool svc_down = false;
     for (int i = 0; i < lab->n_services; i++) svc_down |= !lab->services[i].up;
     uint32_t c;
     float k = 1.0f;
-    if (!lab->ever) c = TEAL_LO;
+    if (!lab->ever) { c = col; k = 0.25f; }
     else if (!lab->ok || svc_down) { c = RED; k = 0.35f + 0.65f * (0.5f + 0.5f * sinf(ms * 0.0042f)); }   /* ~1.5 s pulse */
     else if (lab->has_battery && !lab->ac) c = AMBER;
-    else { c = TEAL; k = 0.75f + 0.25f * sinf(ms * 0.0013f); }                                           /* slow breath */
+    else { c = col; k = 0.75f + 0.25f * sinf(ms * 0.0013f); }                                             /* slow breath */
     zone_fill(z, scale(c, k));
 }
 
-static void fx_breathe(int z, uint32_t ms)        /* teal, 15 % .. full and back every 4 s */
+static void fx_breathe(int z, uint32_t c, uint32_t ms)   /* 15 % .. full and back every 4 s */
 {
     float k = 0.15f + 0.85f * (0.5f - 0.5f * cosf(ms * (6.2831853f / 4000.0f)));
-    zone_fill(z, scale(TEAL, k * k));             /* squared: the eye's curve, so it doesn't sit at full */
+    zone_fill(z, scale(c, k * k));               /* squared: the eye's curve, so it doesn't sit at full */
+}
+
+static void fx_wave(int z, uint32_t c, uint32_t ms)      /* a band of light running along the path, 3 s a lap */
+{
+    int n = zone_len(z);
+    for (int i = 0; i < n; i++) {
+        float k = 0.5f + 0.5f * cosf(6.2831853f * ((float)i / n - ms / 3000.0f));
+        s_px[zone_led(z, i)] = scale(c, 0.08f + 0.92f * k * k * k);
+    }
+}
+
+static void fx_comet(int z, uint32_t c, uint32_t ms)     /* a bright head and a fading tail, 2 s a lap */
+{
+    int n = zone_len(z);
+    float head = fmodf(ms / 2000.0f, 1.0f) * n, tail = n / 3.0f > 2 ? n / 3.0f : 2;
+    for (int i = 0; i < n; i++) {
+        float d = fmodf(head - i + n, (float)n);  /* how far behind the head */
+        float k = d < tail ? 1 - d / tail : 0;
+        s_px[zone_led(z, i)] = d < 1 ? mix(c, 0xFFFFFFu, 0.35f * (1 - d)) : scale(c, k * k);
+    }
+}
+
+static float s_twinkle[LED_COUNT];               /* sparkle: each LED's flash, fading */
+static float s_heat[LED_COUNT];                  /* fire: each LED's flicker */
+
+static void fx_sparkle(int z, uint32_t c)        /* random LEDs flash and fade over a dim glow */
+{
+    int n = zone_len(z);
+    for (int i = 0; i < n; i++) {
+        int p = zone_led(z, i);
+        s_twinkle[p] *= 0.86f;                   /* ~0.25 s to fade */
+        if (rnd() < 0.025f) s_twinkle[p] = 1.0f;
+        float k = s_twinkle[p];
+        s_px[p] = scale(mix(c, 0xFFFFFFu, 0.4f * k), 0.06f + 0.94f * k);
+    }
+}
+
+static void fx_pulse(int z, uint32_t c)          /* the whole zone, as bright as the room is loud */
+{
+    zone_fill(z, scale(c, 0.06f + 0.94f * s_level * s_level));
+}
+
+static void fx_fire(int z)                       /* flickering embers, hottest at the bottom of the side boards */
+{
+    int n = zone_len(z);
+    for (int i = 0; i < n; i++) {
+        int p = zone_led(z, i);
+        s_heat[p] += (rnd() - s_heat[p]) * 0.25f;
+        float base = z == LED_ZONE_BACK ? 0.75f : 1.0f - ROW_OF[i] * 0.06f;
+        float v = clamp01(s_heat[p] * base * 1.2f);
+        uint32_t col = v < 0.5f ? mix(0x300000u, 0xFF2000u, v * 2) : mix(0xFF2000u, 0xFFA020u, (v - 0.5f) * 2);
+        s_px[p] = col;
+    }
 }
 
 static uint32_t hue(float h)                      /* h in turns (0..1), full saturation and value */
@@ -195,14 +269,15 @@ static void fx_rainbow(int z, uint32_t ms)        /* the colour wheel rolling up
 
 /* One step of a loudness meter: `steps` LEDs, lit up to `level` (0..1), the peak dot above. Each LED
  * takes the colour of the level it lights at, so every zone turns orange and red at the same loudness. */
-static uint32_t meter_led(int k, int steps, float level, float peak)
+static uint32_t meter_led(int k, int steps, float level, float peak, uint32_t c)
 {
     int lit = (int)lroundf(level * steps), pk = (int)lroundf(peak * steps) - 1;
-    if (k < lit) return meter_color((k + 0.5f) / steps);
+    if (k < lit) return meter_color((k + 0.5f) / steps, c);
     return k == pk ? 0x808080u : 0;
 }
 
-/* Loudness, low-passed like the audio panel, with a falling peak dot; once a frame, for every music zone. */
+/* Loudness, low-passed like the audio panel, with a falling peak dot; once a frame, for every zone
+ * that follows the sound (music, pulse). */
 static void music_update(const mic_snapshot_t *m)
 {
     if (!isnan(m->dbfs)) s_db += (m->dbfs - s_db) * 0.3f;
@@ -211,31 +286,48 @@ static void music_update(const mic_snapshot_t *m)
     s_peak = s_level > s_peak ? s_level : fmaxf(0, s_peak - 0.01f);
 }
 
-static void fx_music(int z)
+static void fx_music(int z, uint32_t c)
 {
     int n = zone_steps(z);
-    for (int i = 0; i < n; i++) zone_set(z, i, meter_led(i, n, s_level, s_peak));
+    for (int i = 0; i < n; i++) zone_set(z, i, meter_led(i, n, s_level, s_peak, c));
 }
 
-static void zone_effect(int z, const char *fx, const host_stats_t *pc, const host_stats_t *lab, uint32_t ms)
+static bool hears(const char *fx)                 /* the effect follows the mic */
+{
+    return strcmp(fx, "music") == 0 || strcmp(fx, "pulse") == 0;
+}
+
+/* Every zone goes through here, the back light the same as the sides: one colour is the same bytes
+ * on every LED of the chain. */
+static void zone_effect(int z, const char *fx, uint32_t c, const host_stats_t *pc, const host_stats_t *lab, uint32_t ms)
 {
     if (strcmp(fx, "glow") == 0) {
-        zone_fill(z, TEAL);
+        zone_fill(z, c);
     } else if (strcmp(fx, "breathe") == 0) {
-        fx_breathe(z, ms);
+        fx_breathe(z, c, ms);
+    } else if (strcmp(fx, "wave") == 0) {
+        fx_wave(z, c, ms);
+    } else if (strcmp(fx, "comet") == 0) {
+        fx_comet(z, c, ms);
+    } else if (strcmp(fx, "sparkle") == 0) {
+        fx_sparkle(z, c);
+    } else if (strcmp(fx, "pulse") == 0) {
+        fx_pulse(z, c);
+    } else if (strcmp(fx, "fire") == 0) {
+        fx_fire(z);
     } else if (strcmp(fx, "rainbow") == 0) {
         fx_rainbow(z, ms);
     } else if (strcmp(fx, "cpu") == 0) {
         float load = pc->ok ? pc->cpu_load : NAN;
-        fx_load(z, load, pc->ok ? pc->cpu_temp : NAN, alert_level(0, load), ms);
+        fx_load(z, c, load, pc->ok ? pc->cpu_temp : NAN, alert_level(0, load), ms);
     } else if (strcmp(fx, "gpu") == 0) {
         bool ok = pc->ok && pc->has_gpu;
         float load = ok ? pc->gpu.load : NAN;
-        fx_load(z, load, ok ? pc->gpu.temp : NAN, alert_level(1, load), ms);
+        fx_load(z, c, load, ok ? pc->gpu.temp : NAN, alert_level(1, load), ms);
     } else if (strcmp(fx, "lab") == 0) {
-        fx_lab(z, lab, ms);
+        fx_lab(z, c, lab, ms);
     } else if (strcmp(fx, "music") == 0) {
-        fx_music(z);
+        fx_music(z, c);
     }                                             /* "off": left dark */
 }
 
@@ -313,12 +405,12 @@ static void ledfx_task(void *arg)
             for (int i = 0; i < LED_COUNT; i++) s_px[i] = c;
         } else {                                          /* each zone its own effect */
             bool music = false;
-            for (int z = 0; z < 3; z++) music |= strcmp(s.led_zone[z], "music") == 0;
+            for (int z = 0; z < 3; z++) music |= hears(s.led_zone[z]);
             if (music) {
                 mic_get(&m);
                 music_update(&m);
             }
-            for (int z = 0; z < 3; z++) zone_effect(z, s.led_zone[z], &pc, &lab, ms);
+            for (int z = 0; z < 3; z++) zone_effect(z, s.led_zone[z], s.led_color[z], &pc, &lab, ms);
         }
         leds_show(s_px, LED_COUNT, (uint8_t)(bright * 255 / 100));
     }

@@ -62,6 +62,10 @@ export interface DeviceSettings {
   led_left?: string
   led_back?: string
   led_right?: string
+  /** Each LED zone's colour, '#rrggbb' (firmware 0.20+). */
+  led_left_color?: string
+  led_back_color?: string
+  led_right_color?: string
   led_brightness: number
   key_beep?: boolean
   chime?: boolean
@@ -87,19 +91,27 @@ export interface DeviceSettings {
 export const PANEL_NAMES: Record<string, string> = { lab: 'Home lab', cpu: 'CPU', nav: 'Clock', gpu: 'GPU', audio: 'Audio', off: 'Off' }
 export const SLOT_NAMES = ['Left', 'Second', 'Middle', 'Fourth', 'Right']
 export const LED_EFFECT_NAMES: Record<string, string> = {
-  off: 'Off', glow: 'Glow', breathe: 'Breathe', rainbow: 'Rainbow',
-  cpu: 'CPU load', gpu: 'GPU load', lab: 'Home lab', music: 'Music',
+  off: 'Off', glow: 'Glow', breathe: 'Breathe', wave: 'Wave', comet: 'Comet', sparkle: 'Sparkle',
+  pulse: 'Pulse', fire: 'Fire', rainbow: 'Rainbow', cpu: 'CPU load', gpu: 'GPU load', lab: 'Home lab', music: 'Music',
 }
 export const LED_EFFECT_HINTS: Record<string, string> = {
   off: 'Dark.',
-  glow: 'Steady teal.',
-  breathe: 'Teal, fading in and out.',
-  rainbow: 'Slowly cycling colours.',
+  glow: 'Steady.',
+  breathe: 'Fades in and out.',
+  wave: 'A band of light running round.',
+  comet: 'A bright dot with a fading tail.',
+  sparkle: 'Random twinkles.',
+  pulse: 'Brighter as the room gets louder.',
+  fire: 'Flickering embers.',
+  rainbow: 'Cycling colours.',
   cpu: 'Fills with CPU load. Orange, then red, when busy or hot.',
   gpu: 'Fills with GPU load. Orange, then red, when busy or hot.',
-  lab: 'Teal when all is well, red when something is down.',
-  music: 'Follows the loudness in the room.',
+  lab: 'Your colour when all is well, red when something is down.',
+  music: 'A loudness meter. Orange, then red, when loud.',
 }
+/** Effects that bring their own colours, so the colour picker has nothing to do. */
+export const LED_OWN_COLOURS = ['off', 'fire', 'rainbow']
+export const LED_DEFAULT_COLOUR = '#2a8cb2'
 /** The old single modes, as effects for the left strip, the back light and the right strip. */
 export const LED_PRESETS: Record<string, [string, string, string]> = {
   off: ['off', 'off', 'off'], glow: ['glow', 'glow', 'glow'], status: ['cpu', 'lab', 'gpu'], music: ['music', 'music', 'music'],

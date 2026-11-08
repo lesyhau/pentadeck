@@ -19,9 +19,9 @@
 static const char *TAG = "settings";
 #define NS      "tg"
 #define KEY     "cfg"
-#define VERSION 11                  /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
+#define VERSION 12                  /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
                                        7 the modes' values, 8 low power, 9 the mic stream switch, 10 the AUDIO view,
-                                       11 an effect per LED zone and the world clock's order */
+                                       11 an effect per LED zone and the world clock's order, 12 a colour per LED zone */
 
 typedef struct {
     uint32_t version;
@@ -34,8 +34,11 @@ static volatile uint32_t s_gen;
 
 static const char *PANELS[] = { "lab", "cpu", "nav", "gpu", "audio", "off" };
 static const char *LED_MODES[] = { "off", "glow", "status", "music" };          /* presets over the zones */
-static const char *LED_EFFECTS[] = { "off", "glow", "breathe", "rainbow", "cpu", "gpu", "lab", "music" };
+static const char *LED_EFFECTS[] = { "off", "glow", "breathe", "wave", "comet", "sparkle", "pulse", "fire", "rainbow",
+                                     "cpu", "gpu", "lab", "music" };
 static const char *LED_ZONE_KEYS[3] = { "led_left", "led_back", "led_right" };
+static const char *LED_COLOR_KEYS[3] = { "led_left_color", "led_back_color", "led_right_color" };
+#define LED_TEAL 0x2A8CB2u                                                     /* the HUD's teal */
 /* each preset's effect for the left strip, the back light and the right strip */
 static const char *LED_PRESET_ZONES[][3] = {
     { "off", "off", "off" }, { "glow", "glow", "glow" }, { "cpu", "lab", "gpu" }, { "music", "music", "music" },
@@ -124,6 +127,7 @@ static void defaults(tg_settings_t *s)
     s->mic_stream = true;
     strcpy(s->audio_view, "eq");
     strcpy(s->world_order, "102");     /* home in the middle */
+    for (int z = 0; z < 3; z++) s->led_color[z] = LED_TEAL;
 }
 
 static bool valid_panel(const char *p)
@@ -158,6 +162,9 @@ static esp_err_t validate(const tg_settings_t *s, char *err, int err_len)
     if (s->buzzer_volume > 100) FAIL("buzzer volume is 0..100");
     for (int z = 0; z < 3; z++) {
         if (!in_list(s->led_zone[z], LED_EFFECTS, COUNT(LED_EFFECTS))) FAIL("%s: unknown LED effect '%s'", LED_ZONE_KEYS[z], s->led_zone[z]);
+    }
+    for (int z = 0; z < 3; z++) {
+        if (s->led_color[z] > 0xFFFFFF) FAIL("%s must be #RRGGBB", LED_COLOR_KEYS[z]);
     }
     if (!valid_world_order(s->world_order)) FAIL("world_order must hold 0, 1 and 2 once each");
     if (s->led_brightness > 100) FAIL("LED brightness is 0..100");
@@ -202,6 +209,8 @@ esp_err_t settings_init(void)
             defaults(&s);
             if (st.version == VERSION && len == sizeof st) {
                 s = st.s;
+            } else if (st.version == 11 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, led_color)) {
+                memcpy(&s, &st.s, offsetof(tg_settings_t, led_color));
             } else if (st.version == 10 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, led_zone)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, led_zone));
             } else if (st.version == 9 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, audio_view)) {
@@ -305,7 +314,12 @@ char *settings_to_json(void)
     cJSON_AddNumberToObject(o, "alert_gpu_temp", s.alert_gpu_temp);
     cJSON_AddNumberToObject(o, "alert_vram_temp", s.alert_vram_temp);
     cJSON_AddStringToObject(o, "led_mode", settings_led_preset_of(&s));   /* a preset name, or "custom" */
-    for (int z = 0; z < 3; z++) cJSON_AddStringToObject(o, LED_ZONE_KEYS[z], s.led_zone[z]);
+    for (int z = 0; z < 3; z++) {
+        char hex[8];
+        snprintf(hex, sizeof hex, "#%06lx", (unsigned long)s.led_color[z]);
+        cJSON_AddStringToObject(o, LED_ZONE_KEYS[z], s.led_zone[z]);
+        cJSON_AddStringToObject(o, LED_COLOR_KEYS[z], hex);
+    }
     cJSON_AddNumberToObject(o, "led_brightness", s.led_brightness);
     cJSON_AddBoolToObject(o, "key_beep", s.key_beep);
     cJSON_AddBoolToObject(o, "chime", s.chime);
@@ -384,7 +398,16 @@ esp_err_t settings_from_json(const char *json, char *err, int err_len)
         cJSON_Delete(o);
         return ESP_ERR_INVALID_ARG;
     }
-    for (int z = 0; z < 3; z++) copy_str(s.led_zone[z], sizeof s.led_zone[z], cJSON_GetObjectItem(o, LED_ZONE_KEYS[z]));
+    for (int z = 0; z < 3; z++) {
+        copy_str(s.led_zone[z], sizeof s.led_zone[z], cJSON_GetObjectItem(o, LED_ZONE_KEYS[z]));
+        v = cJSON_GetObjectItem(o, LED_COLOR_KEYS[z]);
+        if (cJSON_IsString(v) && v->valuestring) {      /* "#RRGGBB" (or "RRGGBB") */
+            const char *h = v->valuestring + (v->valuestring[0] == '#');
+            char *end;
+            unsigned long c = strtoul(h, &end, 16);
+            s.led_color[z] = strlen(h) == 6 && *end == 0 ? (uint32_t)c : 0xFFFFFFFFu;   /* bad: fails validation */
+        }
+    }
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "led_brightness"))) s.led_brightness = (uint8_t)v->valuedouble;
     if (cJSON_IsBool(v = cJSON_GetObjectItem(o, "key_beep"))) s.key_beep = cJSON_IsTrue(v);
     if (cJSON_IsBool(v = cJSON_GetObjectItem(o, "chime"))) s.chime = cJSON_IsTrue(v);
