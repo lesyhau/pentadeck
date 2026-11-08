@@ -152,27 +152,49 @@ const LED_ZONES = [
   { key: 'led_right', color: 'led_right_color', label: 'Right strip' },
 ] as const
 
-/** A colour well: the system's colour picker behind a 44 px swatch. */
-function ColourWell({ value, onChange, label, disabled }: { value: string; onChange: (v: string) => void; label: string; disabled?: boolean }) {
+/** Colours that look right on the LEDs (fully saturated; teal is the screens' own). */
+const LED_COLOURS = [
+  { value: '#2a8cb2', label: 'Teal' },
+  { value: '#00c0ff', label: 'Cyan' },
+  { value: '#0040ff', label: 'Blue' },
+  { value: '#8000ff', label: 'Purple' },
+  { value: '#ff0080', label: 'Pink' },
+  { value: '#ff0000', label: 'Red' },
+  { value: '#ff4000', label: 'Orange' },
+  { value: '#ffa000', label: 'Amber' },
+  { value: '#00ff40', label: 'Green' },
+  { value: '#ffffff', label: 'White' },
+]
+
+const SWATCH = 'relative h-9 w-9 shrink-0 rounded-full border border-line-strong transition-shadow duration-150 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgb(var(--pd-accent)/0.35)]'
+const PICKED = 'shadow-[0_0_0_2px_rgb(var(--pd-surface)),0_0_0_4px_rgb(var(--pd-accent))]'
+
+/** The presets, and "Custom" for any other colour (the system's colour picker). */
+function ColourPicker({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  const custom = !LED_COLOURS.some(c => c.value === value.toLowerCase())
   return (
-    <label
-      className={cn(
-        'relative block h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-line-strong',
-        'focus-within:shadow-[0_0_0_3px_rgb(var(--pd-accent)/0.22)]',
-        disabled && 'cursor-not-allowed opacity-30',
-      )}
-      style={{ background: value }}
-      title={disabled ? 'This effect has its own colours' : label}
-    >
-      <input
-        type="color"
-        aria-label={label}
-        value={value}
-        disabled={disabled}
-        onChange={e => onChange(e.target.value)}
-        className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-      />
-    </label>
+    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2.5">
+      {LED_COLOURS.map(c => (
+        <button
+          key={c.value}
+          type="button"
+          role="radio"
+          aria-checked={c.value === value.toLowerCase()}
+          title={c.label}
+          aria-label={c.label}
+          className={cn(SWATCH, c.value === value.toLowerCase() && PICKED)}
+          style={{ background: c.value }}
+          onClick={() => onChange(c.value)}
+        />
+      ))}
+      <label
+        title="Custom colour"
+        className={cn(SWATCH, 'cursor-pointer overflow-hidden focus-within:shadow-[0_0_0_3px_rgb(var(--pd-accent)/0.35)]', custom && PICKED)}
+        style={{ background: custom ? value : 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' }}
+      >
+        <input type="color" aria-label="Custom colour" value={value} onChange={e => onChange(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      </label>
+    </div>
   )
 }
 
@@ -183,23 +205,49 @@ export function LedSection({ draft, set, ledEffects, onTest, onResume, busy, not
   notice: Note | null
 }) {
   const zonesId = useId()
+  const [picking, setPicking] = useState<string | null>(null)
   const options = ledEffects.map(e => ({ value: e, label: LED_EFFECT_NAMES[e] ?? e }))
   return (
     <Card title="LEDs" caption="An effect and a colour for each strip. The buttons stay lit unless all three are off.">
       <Field id={zonesId} group label="Effects">
         <ul className="divide-y divide-line rounded-lg border border-line">
-          {LED_ZONES.map(({ key, color, label }) => (
-            <li key={key} className="flex items-center justify-between gap-2 py-2 pl-3 pr-2 sm:gap-3">
-              <div className="min-w-0">
-                <div className="truncate text-[15px] font-medium text-ink">{label}</div>
-                <div key={draft[key]} className="pd-fade-in text-xs leading-snug text-ink-2">{LED_EFFECT_HINTS[draft[key]] ?? ''}</div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Select className="w-32 sm:w-36" ariaLabel={`${label} effect`} value={draft[key]} options={options} onChange={v => set(key, v)} />
-                <ColourWell label={`${label} colour`} value={draft[color]} onChange={v => set(color, v)} disabled={LED_OWN_COLOURS.includes(draft[key])} />
-              </div>
-            </li>
-          ))}
+          {LED_ZONES.map(({ key, color, label }) => {
+            const ownColours = LED_OWN_COLOURS.includes(draft[key])
+            const open = picking === key && !ownColours
+            return (
+              <li key={key} className="py-2 pl-3 pr-2">
+                <div className="flex items-center justify-between gap-2 sm:gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-[15px] font-medium text-ink">{label}</div>
+                    <div key={draft[key]} className="pd-fade-in text-xs leading-snug text-ink-2">{LED_EFFECT_HINTS[draft[key]] ?? ''}</div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Select className="w-32 sm:w-36" ariaLabel={`${label} effect`} value={draft[key]} options={options} onChange={v => set(key, v)} />
+                    <button
+                      type="button"
+                      aria-label={`${label} colour`}
+                      aria-expanded={open}
+                      disabled={ownColours}
+                      title={ownColours ? 'This effect has its own colours' : 'Colour'}
+                      onClick={() => setPicking(open ? null : key)}
+                      className={cn(
+                        'h-11 w-11 shrink-0 rounded-lg border border-line-strong transition-shadow duration-150',
+                        'focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgb(var(--pd-accent)/0.35)]',
+                        open && PICKED,
+                        ownColours && 'cursor-not-allowed opacity-30',
+                      )}
+                      style={{ background: draft[color] }}
+                    />
+                  </div>
+                </div>
+                <Reveal show={open}>
+                  <div className="pb-1 pt-3">
+                    <ColourPicker label={`${label} colour`} value={draft[color]} onChange={v => set(color, v)} />
+                  </div>
+                </Reveal>
+              </li>
+            )
+          })}
         </ul>
       </Field>
 
