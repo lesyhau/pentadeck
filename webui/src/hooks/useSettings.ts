@@ -9,7 +9,7 @@ import type { Send } from '../components/Pairing'
  * App, above the pages, so leaving Settings and coming back keeps what was typed.
  */
 export function useSettings(send: Send) {
-  const [meta, setMeta] = useState<Pick<DeviceSettings, 'led_modes' | 'panels'>>({})
+  const [meta, setMeta] = useState<Pick<DeviceSettings, 'led_effects' | 'panels'>>({})
   const [base, setBase] = useState<Draft | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -19,7 +19,7 @@ export function useSettings(send: Send) {
 
   const fill = useCallback((s: DeviceSettings) => {
     const d = toDraft(s)
-    setMeta({ led_modes: s.led_modes, panels: s.panels })
+    setMeta({ led_effects: s.led_effects, panels: s.panels })
     setBase(d)
     setDraft(d)
     setShowErrors(false)

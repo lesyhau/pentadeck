@@ -56,7 +56,12 @@ export interface DeviceSettings {
   alert_cpu_temp: number
   alert_gpu_temp: number
   alert_vram_temp: number
-  led_mode: string
+  /** The old single LED mode, now a preset over the zones; read back as the preset, or 'custom'. */
+  led_mode?: string
+  /** Each LED zone's effect, one of led_effects (firmware 0.19+). */
+  led_left?: string
+  led_back?: string
+  led_right?: string
   led_brightness: number
   key_beep?: boolean
   chime?: boolean
@@ -72,18 +77,32 @@ export interface DeviceSettings {
   mic_stream?: boolean
   /** The AUDIO screen: 'eq' (16-band equaliser) or 'vu' (a needle VU meter) (firmware 0.18+). */
   audio_view?: string
+  /** The World mode's clocks on screens 2, 3, 4: 0 = home, 1 and 2 = world_names[0] and [1] (firmware 0.19+). */
+  world_order?: number[]
   led_modes?: string[]
+  led_effects?: string[]
   panels?: string[]
 }
 
 export const PANEL_NAMES: Record<string, string> = { lab: 'Home lab', cpu: 'CPU', nav: 'Clock', gpu: 'GPU', audio: 'Audio', off: 'Off' }
 export const SLOT_NAMES = ['Left', 'Second', 'Middle', 'Fourth', 'Right']
-export const LED_NAMES: Record<string, string> = { off: 'Off', glow: 'Glow', status: 'Status', music: 'Music' }
-export const LED_HINTS: Record<string, string> = {
-  off: 'All LEDs off, including the buttons board.',
-  glow: 'A steady teal glow. The side strips still flash on high CPU or GPU load.',
-  status: 'Left strip = CPU load, right strip = GPU load (orange from 60 %, red from 80 %). Back = home lab health.',
-  music: 'All three strips are one loudness meter: the sides fill from the bottom, the back from the middle out. No load alerts here, so they always follow the sound.',
+export const LED_EFFECT_NAMES: Record<string, string> = {
+  off: 'Off', glow: 'Glow', breathe: 'Breathe', rainbow: 'Rainbow',
+  cpu: 'CPU load', gpu: 'GPU load', lab: 'Home lab', music: 'Music',
+}
+export const LED_EFFECT_HINTS: Record<string, string> = {
+  off: 'Dark.',
+  glow: 'Steady teal.',
+  breathe: 'Teal, fading in and out.',
+  rainbow: 'Slowly cycling colours.',
+  cpu: 'Fills with CPU load. Orange, then red, when busy or hot.',
+  gpu: 'Fills with GPU load. Orange, then red, when busy or hot.',
+  lab: 'Teal when all is well, red when something is down.',
+  music: 'Follows the loudness in the room.',
+}
+/** The old single modes, as effects for the left strip, the back light and the right strip. */
+export const LED_PRESETS: Record<string, [string, string, string]> = {
+  off: ['off', 'off', 'off'], glow: ['glow', 'glow', 'glow'], status: ['cpu', 'lab', 'gpu'], music: ['music', 'music', 'music'],
 }
 
 /** GET /status: the firmware's own record of itself (no token needed). */

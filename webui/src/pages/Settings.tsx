@@ -2,7 +2,7 @@ import { Button, Card, Notice, PageTitle, Skeleton, type Note } from '../ui'
 import { DataSection, DisplaySection, LedSection, MicSection, SoundsSection, WorldSection } from './DeviceSettingsForm'
 import type { Settings } from '../hooks/useSettings'
 
-const DEFAULT_LED_MODES = ['off', 'glow', 'status', 'music']
+const DEFAULT_LED_EFFECTS = ['off', 'glow', 'breathe', 'rainbow', 'cpu', 'gpu', 'lab', 'music']
 const DEFAULT_PANELS = ['lab', 'cpu', 'nav', 'gpu', 'audio', 'off']
 
 /** THE SETTINGS PAGE: the cards over the draft the App keeps; the save bar is the App's too. */
@@ -16,7 +16,7 @@ export function SettingsPage({ settings, onTestLeds, onResumeLeds, ledBusy, onBe
   notices: { leds: Note | null; sounds: Note | null }
 }) {
   const { draft, errors, set, meta, loadFailed, load } = settings
-  const form = draft && { draft, errors, set, panels: meta.panels ?? DEFAULT_PANELS, ledModes: meta.led_modes ?? DEFAULT_LED_MODES }
+  const form = draft && { draft, errors, set, panels: meta.panels ?? DEFAULT_PANELS, ledEffects: meta.led_effects ?? DEFAULT_LED_EFFECTS }
 
   return (
     <>

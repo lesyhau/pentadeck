@@ -1,4 +1,4 @@
-import type { DeviceSettings } from './api'
+import { LED_PRESETS, type DeviceSettings } from './api'
 
 /**
  * THE FORM, as edited: the device's settings with the typed numbers kept as the text being typed
@@ -25,7 +25,9 @@ export interface Draft {
   alert_cpu_temp: string
   alert_gpu_temp: string
   alert_vram_temp: string
-  led_mode: string
+  led_left: string
+  led_back: string
+  led_right: string
   led_brightness: number
   key_beep: boolean
   chime: boolean
@@ -41,11 +43,15 @@ export interface Draft {
   idle_brightness: number
   mic_stream: boolean
   audio_view: string
+  /** The World mode's clocks on screens 2, 3, 4: 0 = home, 1 and 2 = the two places. */
+  world_order: number[]
 }
 
 export type DraftErrors = Partial<Record<keyof Draft, string>>
 
 export function toDraft(s: DeviceSettings): Draft {
+  // Firmware before the zones has one mode for all three.
+  const [left, back, right] = LED_PRESETS[s.led_mode ?? ''] ?? LED_PRESETS.status
   return {
     src0: s.sources[0] ?? '',
     src1: s.sources[1] ?? '',
@@ -66,7 +72,9 @@ export function toDraft(s: DeviceSettings): Draft {
     alert_cpu_temp: String(s.alert_cpu_temp),
     alert_gpu_temp: String(s.alert_gpu_temp),
     alert_vram_temp: String(s.alert_vram_temp),
-    led_mode: s.led_mode,
+    led_left: s.led_left ?? left,
+    led_back: s.led_back ?? back,
+    led_right: s.led_right ?? right,
     led_brightness: s.led_brightness,
     key_beep: s.key_beep ?? true,
     chime: s.chime ?? false,
@@ -82,11 +90,12 @@ export function toDraft(s: DeviceSettings): Draft {
     idle_brightness: s.idle_brightness ?? 10,
     mic_stream: s.mic_stream ?? true,
     audio_view: s.audio_view ?? 'eq',
+    world_order: s.world_order?.length === 3 ? [...s.world_order] : [1, 0, 2],
   }
 }
 
 /** What POST /api/settings is sent. Night off sends an empty window, as the device expects. */
-export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'panels'> {
+export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'led_effects' | 'panels'> {
   return {
     sources: [d.src0.trim(), d.src1.trim()],
     poll_ms: Number(d.poll_ms),
@@ -105,7 +114,9 @@ export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'panels'
     alert_cpu_temp: Number(d.alert_cpu_temp),
     alert_gpu_temp: Number(d.alert_gpu_temp),
     alert_vram_temp: Number(d.alert_vram_temp),
-    led_mode: d.led_mode,
+    led_left: d.led_left,
+    led_back: d.led_back,
+    led_right: d.led_right,
     led_brightness: d.led_brightness,
     key_beep: d.key_beep,
     chime: d.chime,
@@ -118,6 +129,7 @@ export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'panels'
     idle_brightness: d.idle_brightness,
     mic_stream: d.mic_stream,
     audio_view: d.audio_view,
+    world_order: d.world_order,
   }
 }
 

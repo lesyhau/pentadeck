@@ -91,12 +91,31 @@ static void side_set(int right, int row, uint32_t c)
     }
 }
 
-static void side_fill(int right, uint32_t c)
+/* A zone (settings.h LED_ZONE_*: the left strip, the back light, the right strip), drawn in steps:
+ * the side strips by row from the bottom up, the back light from the middle LED out to both ends. */
+static int zone_steps(int z)
 {
-    for (int i = 0; i < LED_ROWS; i++) side_set(right, i, c);
+    return z == LED_ZONE_BACK ? LED_BACK_N / 2 + 1 : LED_ROWS;
 }
 
-/* Same thresholds and hysteresis as the screens: 60 % orange, 80 % red. */
+static void zone_set(int z, int step, uint32_t c)
+{
+    if (z == LED_ZONE_BACK) {
+        const int mid = LED_BACK_N / 2;
+        s_px[LED_BACK0 + mid - step] = c;
+        s_px[LED_BACK0 + mid + step] = c;
+    } else {
+        side_set(z == LED_ZONE_RIGHT, step, c);
+    }
+}
+
+static void zone_fill(int z, uint32_t c)
+{
+    for (int i = 0; i < zone_steps(z); i++) zone_set(z, i, c);
+}
+
+/* Same thresholds and hysteresis as the screens: 60 % orange, 80 % red. Calling it twice a frame
+ * with the same load (two zones on the CPU) gives the same answer. */
 static int alert_level(int which, float load)
 {
     int lv = s_alert[which];
@@ -108,6 +127,12 @@ static int alert_level(int which, float load)
     return s_alert[which] = lv;
 }
 
+/* How the screens colour a temperature (hud.c temp_color): orange from 75 °C, red from 88 °C. */
+static int heat_level(float c)
+{
+    return isnan(c) ? 0 : c >= 88.0f ? 2 : c >= 75.0f ? 1 : 0;
+}
+
 /* The screens' blink: orange 1.2 s period, red 0.6 s. */
 static bool blink_on(int lv, uint32_t ms)
 {
@@ -115,32 +140,28 @@ static bool blink_on(int lv, uint32_t ms)
     return lv == 2 ? (ph % 4) < 2 : ph < 4;
 }
 
-static uint32_t meter_color(float pos)            /* teal, amber from 60 %, red from 80 % */
+static uint32_t meter_color(float pos)            /* teal, orange from 60 %, red from 80 % */
 {
     return pos >= 0.8f ? RED : pos >= 0.6f ? ORANGE : TEAL;
 }
 
-static void load_meter(int right, float load, int lv, uint32_t ms)
+/* A PC load meter, lit up to the load. Teal while all is well; orange from 60 % load or 75 °C, red
+ * from 80 % or 88 °C, the screens' thresholds, so a hot part shows even at a low load (the unlit part
+ * takes a glow of the colour too). A load alert blinks like the screen's frame; heat alone is steady. */
+static void fx_load(int z, float load, float temp, int alert, uint32_t ms)
 {
-    if (isnan(load)) { side_fill(right, 0); return; }
-    if (lv && !blink_on(lv, ms)) { side_fill(right, scale(lv == 2 ? RED : ORANGE, 0.15f)); return; }
-    int lit = (int)lroundf(clamp01(load / 100.0f) * LED_ROWS);
+    if (isnan(load)) { zone_fill(z, 0); return; }
+    int heat = heat_level(temp), worst = alert > heat ? alert : heat, n = zone_steps(z);
+    uint32_t c = worst == 2 ? RED : worst == 1 ? ORANGE : TEAL;
+    uint32_t unlit = worst ? scale(c, 0.12f) : TEAL_LO;
+    if (alert && !blink_on(alert, ms)) c = scale(c, 0.2f);
+    int lit = (int)lroundf(clamp01(load / 100.0f) * n);
     if (lit < 1) lit = 1;
-    for (int i = 0; i < LED_ROWS; i++) {
-        side_set(right, i, i < lit ? (lv ? (lv == 2 ? RED : ORANGE) : meter_color((i + 0.5f) / LED_ROWS)) : TEAL_LO);
-    }
+    for (int i = 0; i < n; i++) zone_set(z, i, i < lit ? c : unlit);
 }
 
-static void alert_overlay(const host_stats_t *pc, uint32_t ms)
-{
-    if (!pc->ok) return;
-    int lv = alert_level(0, pc->cpu_load);
-    if (lv) side_fill(0, blink_on(lv, ms) ? (lv == 2 ? RED : ORANGE) : 0);
-    lv = alert_level(1, pc->has_gpu ? pc->gpu.load : NAN);
-    if (lv) side_fill(1, blink_on(lv, ms) ? (lv == 2 ? RED : ORANGE) : 0);
-}
-
-static void back_health(const host_stats_t *lab, uint32_t ms)
+/* The home lab's health: teal breathing when well, amber on battery, a red pulse when it or a service is down. */
+static void fx_lab(int z, const host_stats_t *lab, uint32_t ms)
 {
     bool svc_down = false;
     for (int i = 0; i < lab->n_services; i++) svc_down |= !lab->services[i].up;
@@ -150,11 +171,30 @@ static void back_health(const host_stats_t *lab, uint32_t ms)
     else if (!lab->ok || svc_down) { c = RED; k = 0.35f + 0.65f * (0.5f + 0.5f * sinf(ms * 0.0042f)); }   /* ~1.5 s pulse */
     else if (lab->has_battery && !lab->ac) c = AMBER;
     else { c = TEAL; k = 0.75f + 0.25f * sinf(ms * 0.0013f); }                                           /* slow breath */
-    for (int i = 0; i < LED_BACK_N; i++) s_px[LED_BACK0 + i] = scale(c, k);
+    zone_fill(z, scale(c, k));
+}
+
+static void fx_breathe(int z, uint32_t ms)        /* teal, 15 % .. full and back every 4 s */
+{
+    float k = 0.15f + 0.85f * (0.5f - 0.5f * cosf(ms * (6.2831853f / 4000.0f)));
+    zone_fill(z, scale(TEAL, k * k));             /* squared: the eye's curve, so it doesn't sit at full */
+}
+
+static uint32_t hue(float h)                      /* h in turns (0..1), full saturation and value */
+{
+    h -= floorf(h);
+    float r = clamp01(fabsf(h * 6 - 3) - 1), g = clamp01(2 - fabsf(h * 6 - 2)), b = clamp01(2 - fabsf(h * 6 - 4));
+    return (uint32_t)(r * 255) << 16 | (uint32_t)(g * 255) << 8 | (uint32_t)(b * 255);
+}
+
+static void fx_rainbow(int z, uint32_t ms)        /* the colour wheel rolling up the strip, once every 6 s */
+{
+    int n = zone_steps(z);
+    for (int i = 0; i < n; i++) zone_set(z, i, hue(ms / 6000.0f - (float)i / (n * 2)));
 }
 
 /* One step of a loudness meter: `steps` LEDs, lit up to `level` (0..1), the peak dot above. Each LED
- * takes the colour of the level it lights at, so every strip turns orange and red at the same loudness. */
+ * takes the colour of the level it lights at, so every zone turns orange and red at the same loudness. */
 static uint32_t meter_led(int k, int steps, float level, float peak)
 {
     int lit = (int)lroundf(level * steps), pk = (int)lroundf(peak * steps) - 1;
@@ -162,25 +202,41 @@ static uint32_t meter_led(int k, int steps, float level, float peak)
     return k == pk ? 0x808080u : 0;
 }
 
-static void music(const mic_snapshot_t *m)
+/* Loudness, low-passed like the audio panel, with a falling peak dot; once a frame, for every music zone. */
+static void music_update(const mic_snapshot_t *m)
 {
-    /* loudness, low-passed like the audio panel, with a falling peak dot: the same meter on all three
-     * strips, the sides filling from the bottom, the back from the middle out to both ends */
     if (!isnan(m->dbfs)) s_db += (m->dbfs - s_db) * 0.3f;
     float lf = clamp01((s_db + 75.0f) / 60.0f);
     s_level = lf > s_level ? s_level + (lf - s_level) * 0.6f : fmaxf(lf, s_level - 0.03f);
     s_peak = s_level > s_peak ? s_level : fmaxf(0, s_peak - 0.01f);
-    for (int i = 0; i < LED_ROWS; i++) {
-        uint32_t c = meter_led(i, LED_ROWS, s_level, s_peak);
-        side_set(0, i, c);
-        side_set(1, i, c);
-    }
-    const int mid = LED_BACK_N / 2;                      /* the back: the middle LED and 2 either side */
-    for (int k = 0; k <= mid; k++) {
-        uint32_t c = meter_led(k, mid + 1, s_level, s_peak);
-        s_px[LED_BACK0 + mid - k] = c;
-        s_px[LED_BACK0 + mid + k] = c;
-    }
+}
+
+static void fx_music(int z)
+{
+    int n = zone_steps(z);
+    for (int i = 0; i < n; i++) zone_set(z, i, meter_led(i, n, s_level, s_peak));
+}
+
+static void zone_effect(int z, const char *fx, const host_stats_t *pc, const host_stats_t *lab, uint32_t ms)
+{
+    if (strcmp(fx, "glow") == 0) {
+        zone_fill(z, TEAL);
+    } else if (strcmp(fx, "breathe") == 0) {
+        fx_breathe(z, ms);
+    } else if (strcmp(fx, "rainbow") == 0) {
+        fx_rainbow(z, ms);
+    } else if (strcmp(fx, "cpu") == 0) {
+        float load = pc->ok ? pc->cpu_load : NAN;
+        fx_load(z, load, pc->ok ? pc->cpu_temp : NAN, alert_level(0, load), ms);
+    } else if (strcmp(fx, "gpu") == 0) {
+        bool ok = pc->ok && pc->has_gpu;
+        float load = ok ? pc->gpu.load : NAN;
+        fx_load(z, load, ok ? pc->gpu.temp : NAN, alert_level(1, load), ms);
+    } else if (strcmp(fx, "lab") == 0) {
+        fx_lab(z, lab, ms);
+    } else if (strcmp(fx, "music") == 0) {
+        fx_music(z);
+    }                                             /* "off": left dark */
 }
 
 static void scene_tuner(float cents)
@@ -234,7 +290,7 @@ static void ledfx_task(void *arg)
         settings_get(&s);
         int bright = s.led_brightness;
         if (settings_is_night(&s, netdata_time_valid())) bright = bright * s.night_brightness / 100;
-        bool off = strcmp(s.led_mode, "off") == 0 || bright == 0 || s_sleep || power_idle();   /* low power: dark */
+        bool off = settings_leds_off(&s) || bright == 0 || s_sleep || power_idle();   /* low power: dark */
         leds_keypad(off ? 0 : (uint8_t)bright);         /* buttons board: steady, same brightness */
         if (off) {
             if (!was_off) leds_off();
@@ -255,17 +311,14 @@ static void ledfx_task(void *arg)
         } else if (scene == SCENE_ALARM) {
             uint32_t c = (ms / 250) % 2 ? ORANGE : 0;
             for (int i = 0; i < LED_COUNT; i++) s_px[i] = c;
-        } else if (strcmp(s.led_mode, "status") == 0) {
-            load_meter(0, pc.ok ? pc.cpu_load : NAN, alert_level(0, pc.ok ? pc.cpu_load : NAN), ms);
-            float g = pc.ok && pc.has_gpu ? pc.gpu.load : NAN;
-            load_meter(1, g, alert_level(1, g), ms);
-            back_health(&lab, ms);
-        } else if (strcmp(s.led_mode, "music") == 0) {   /* no load alerts here: the strips stay on the music */
-            mic_get(&m);
-            music(&m);
-        } else {                                                      /* glow */
-            for (int i = 0; i < LED_COUNT; i++) s_px[i] = TEAL;
-            alert_overlay(&pc, ms);
+        } else {                                          /* each zone its own effect */
+            bool music = false;
+            for (int z = 0; z < 3; z++) music |= strcmp(s.led_zone[z], "music") == 0;
+            if (music) {
+                mic_get(&m);
+                music_update(&m);
+            }
+            for (int z = 0; z < 3; z++) zone_effect(z, s.led_zone[z], &pc, &lab, ms);
         }
         leds_show(s_px, LED_COUNT, (uint8_t)(bright * 255 / 100));
     }

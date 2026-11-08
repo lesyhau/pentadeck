@@ -19,8 +19,9 @@
 static const char *TAG = "settings";
 #define NS      "tg"
 #define KEY     "cfg"
-#define VERSION 10                  /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
-                                       7 the modes' values, 8 low power, 9 the mic stream switch, 10 the AUDIO view */
+#define VERSION 11                  /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
+                                       7 the modes' values, 8 low power, 9 the mic stream switch, 10 the AUDIO view,
+                                       11 an effect per LED zone and the world clock's order */
 
 typedef struct {
     uint32_t version;
@@ -32,7 +33,53 @@ static SemaphoreHandle_t s_lock;
 static volatile uint32_t s_gen;
 
 static const char *PANELS[] = { "lab", "cpu", "nav", "gpu", "audio", "off" };
-static const char *LED_MODES[] = { "off", "glow", "status", "music" };
+static const char *LED_MODES[] = { "off", "glow", "status", "music" };          /* presets over the zones */
+static const char *LED_EFFECTS[] = { "off", "glow", "breathe", "rainbow", "cpu", "gpu", "lab", "music" };
+static const char *LED_ZONE_KEYS[3] = { "led_left", "led_back", "led_right" };
+/* each preset's effect for the left strip, the back light and the right strip */
+static const char *LED_PRESET_ZONES[][3] = {
+    { "off", "off", "off" }, { "glow", "glow", "glow" }, { "cpu", "lab", "gpu" }, { "music", "music", "music" },
+};
+
+#define COUNT(a) (sizeof (a) / sizeof (a)[0])
+
+static bool in_list(const char *v, const char *const *list, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (strcmp(v, list[i]) == 0) return true;
+    }
+    return false;
+}
+
+bool settings_led_preset(tg_settings_t *s, const char *preset)
+{
+    for (size_t i = 0; i < COUNT(LED_MODES); i++) {
+        if (strcmp(preset, LED_MODES[i]) != 0) continue;
+        for (int z = 0; z < 3; z++) strlcpy(s->led_zone[z], LED_PRESET_ZONES[i][z], sizeof s->led_zone[z]);
+        return true;
+    }
+    return false;
+}
+
+const char *settings_led_preset_of(const tg_settings_t *s)
+{
+    for (size_t i = 0; i < COUNT(LED_MODES); i++) {
+        bool same = true;
+        for (int z = 0; z < 3; z++) same &= strcmp(s->led_zone[z], LED_PRESET_ZONES[i][z]) == 0;
+        if (same) return LED_MODES[i];
+    }
+    return "custom";
+}
+
+bool settings_leds_off(const tg_settings_t *s)
+{
+    return strcmp(settings_led_preset_of(s), "off") == 0;
+}
+
+static bool valid_world_order(const char *o)
+{
+    return strlen(o) == 3 && strchr(o, '0') && strchr(o, '1') && strchr(o, '2');
+}
 static const char *AUDIO_VIEWS[] = { "eq", "vu" };
 
 static void defaults(tg_settings_t *s)
@@ -57,7 +104,8 @@ static void defaults(tg_settings_t *s)
     s->alert_cpu_temp = 90;
     s->alert_gpu_temp = 85;
     s->alert_vram_temp = 95;
-    strcpy(s->led_mode, "status");
+    strcpy(s->led_mode_v10, "status");
+    settings_led_preset(s, "status");
     s->led_brightness = 40;
     s->key_beep = true;
     s->chime = false;
@@ -75,6 +123,7 @@ static void defaults(tg_settings_t *s)
     s->idle_brightness = 10;
     s->mic_stream = true;
     strcpy(s->audio_view, "eq");
+    strcpy(s->world_order, "102");     /* home in the middle */
 }
 
 static bool valid_panel(const char *p)
@@ -107,13 +156,12 @@ static esp_err_t validate(const tg_settings_t *s, char *err, int err_len)
         if (!valid_panel(s->layout[i])) FAIL("unknown panel '%s'", s->layout[i]);
     }
     if (s->buzzer_volume > 100) FAIL("buzzer volume is 0..100");
-    bool mode_ok = false;
-    for (size_t i = 0; i < sizeof LED_MODES / sizeof LED_MODES[0]; i++) mode_ok |= strcmp(s->led_mode, LED_MODES[i]) == 0;
-    if (!mode_ok) FAIL("unknown LED mode '%s'", s->led_mode);
+    for (int z = 0; z < 3; z++) {
+        if (!in_list(s->led_zone[z], LED_EFFECTS, COUNT(LED_EFFECTS))) FAIL("%s: unknown LED effect '%s'", LED_ZONE_KEYS[z], s->led_zone[z]);
+    }
+    if (!valid_world_order(s->world_order)) FAIL("world_order must hold 0, 1 and 2 once each");
     if (s->led_brightness > 100) FAIL("LED brightness is 0..100");
-    bool view_ok = false;
-    for (size_t i = 0; i < sizeof AUDIO_VIEWS / sizeof AUDIO_VIEWS[0]; i++) view_ok |= strcmp(s->audio_view, AUDIO_VIEWS[i]) == 0;
-    if (!view_ok) FAIL("unknown audio view '%s' (eq or vu)", s->audio_view);
+    if (!in_list(s->audio_view, AUDIO_VIEWS, COUNT(AUDIO_VIEWS))) FAIL("unknown audio view '%s' (eq or vu)", s->audio_view);
     if (!valid_hhmm(s->alarm_time) || !s->alarm_time[0]) FAIL("alarm time must be HH:MM");
     if (s->tuner_a4 < 430 || s->tuner_a4 > 450) FAIL("tuner A4 is 430..450 Hz");
     if (s->metro_bpm < 30 || s->metro_bpm > 240) FAIL("metronome is 30..240 BPM");
@@ -154,6 +202,8 @@ esp_err_t settings_init(void)
             defaults(&s);
             if (st.version == VERSION && len == sizeof st) {
                 s = st.s;
+            } else if (st.version == 10 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, led_zone)) {
+                memcpy(&s, &st.s, offsetof(tg_settings_t, led_zone));
             } else if (st.version == 9 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, audio_view)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, audio_view));
             } else if (st.version == 8 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, mic_stream)) {
@@ -168,11 +218,13 @@ esp_err_t settings_init(void)
                 memcpy(&s, &st.s, offsetof(tg_settings_t, chime));
             } else if (st.version == 3 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, key_beep)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, key_beep));
-            } else if (st.version == 2 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, led_mode)) {
-                memcpy(&s, &st.s, offsetof(tg_settings_t, led_mode));   /* v2 fields; the new ones keep defaults */
+            } else if (st.version == 2 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, led_mode_v10)) {
+                memcpy(&s, &st.s, offsetof(tg_settings_t, led_mode_v10));   /* v2 fields; the new ones keep defaults */
             } else if (st.version == 1 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, buzzer)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, buzzer));
             }
+            /* before v11 one LED mode ran all three zones (v1 and v2 keep the default, "status") */
+            if (st.version < 11 && !settings_led_preset(&s, s.led_mode_v10)) settings_led_preset(&s, "status");
             if (validate(&s, NULL, 0) == ESP_OK) {
                 s_cur = s;
                 ESP_LOGI(TAG, "loaded (stored version %lu)", (unsigned long)st.version);
@@ -252,7 +304,8 @@ char *settings_to_json(void)
     cJSON_AddNumberToObject(o, "alert_cpu_temp", s.alert_cpu_temp);
     cJSON_AddNumberToObject(o, "alert_gpu_temp", s.alert_gpu_temp);
     cJSON_AddNumberToObject(o, "alert_vram_temp", s.alert_vram_temp);
-    cJSON_AddStringToObject(o, "led_mode", s.led_mode);
+    cJSON_AddStringToObject(o, "led_mode", settings_led_preset_of(&s));   /* a preset name, or "custom" */
+    for (int z = 0; z < 3; z++) cJSON_AddStringToObject(o, LED_ZONE_KEYS[z], s.led_zone[z]);
     cJSON_AddNumberToObject(o, "led_brightness", s.led_brightness);
     cJSON_AddBoolToObject(o, "key_beep", s.key_beep);
     cJSON_AddBoolToObject(o, "chime", s.chime);
@@ -266,17 +319,21 @@ char *settings_to_json(void)
     cJSON_AddNumberToObject(o, "idle_brightness", s.idle_brightness);
     cJSON_AddBoolToObject(o, "mic_stream", s.mic_stream);
     cJSON_AddStringToObject(o, "audio_view", s.audio_view);
+    cJSON *order = cJSON_AddArrayToObject(o, "world_order");
+    for (int i = 0; i < 3; i++) cJSON_AddItemToArray(order, cJSON_CreateNumber(s.world_order[i] - '0'));
     cJSON *wn = cJSON_AddArrayToObject(o, "world_names"), *wt = cJSON_AddArrayToObject(o, "world_tz");
     for (int i = 0; i < 2; i++) {
         cJSON_AddItemToArray(wn, cJSON_CreateString(s.world_name[i]));
         cJSON_AddItemToArray(wt, cJSON_CreateString(s.world_tz[i]));
     }
     cJSON *modes = cJSON_AddArrayToObject(o, "led_modes");
-    for (size_t i = 0; i < sizeof LED_MODES / sizeof LED_MODES[0]; i++) cJSON_AddItemToArray(modes, cJSON_CreateString(LED_MODES[i]));
+    for (size_t i = 0; i < COUNT(LED_MODES); i++) cJSON_AddItemToArray(modes, cJSON_CreateString(LED_MODES[i]));
+    cJSON *fx = cJSON_AddArrayToObject(o, "led_effects");
+    for (size_t i = 0; i < COUNT(LED_EFFECTS); i++) cJSON_AddItemToArray(fx, cJSON_CreateString(LED_EFFECTS[i]));
     cJSON *views = cJSON_AddArrayToObject(o, "audio_views");
-    for (size_t i = 0; i < sizeof AUDIO_VIEWS / sizeof AUDIO_VIEWS[0]; i++) cJSON_AddItemToArray(views, cJSON_CreateString(AUDIO_VIEWS[i]));
+    for (size_t i = 0; i < COUNT(AUDIO_VIEWS); i++) cJSON_AddItemToArray(views, cJSON_CreateString(AUDIO_VIEWS[i]));
     cJSON *panels = cJSON_AddArrayToObject(o, "panels");
-    for (size_t i = 0; i < sizeof PANELS / sizeof PANELS[0]; i++) cJSON_AddItemToArray(panels, cJSON_CreateString(PANELS[i]));
+    for (size_t i = 0; i < COUNT(PANELS); i++) cJSON_AddItemToArray(panels, cJSON_CreateString(PANELS[i]));
     char *out = cJSON_PrintUnformatted(o);
     cJSON_Delete(o);
     return out;
@@ -320,7 +377,14 @@ esp_err_t settings_from_json(const char *json, char *err, int err_len)
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "alert_cpu_temp"))) s.alert_cpu_temp = (uint8_t)v->valuedouble;
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "alert_gpu_temp"))) s.alert_gpu_temp = (uint8_t)v->valuedouble;
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "alert_vram_temp"))) s.alert_vram_temp = (uint8_t)v->valuedouble;
-    copy_str(s.led_mode, sizeof s.led_mode, cJSON_GetObjectItem(o, "led_mode"));
+    /* led_mode, the old single mode, sets all three zones as a preset; zones sent beside it win */
+    v = cJSON_GetObjectItem(o, "led_mode");
+    if (cJSON_IsString(v) && v->valuestring && strcmp(v->valuestring, "custom") != 0 && !settings_led_preset(&s, v->valuestring)) {
+        snprintf(err, err_len, "unknown LED mode '%s' (off, glow, status, music)", v->valuestring);
+        cJSON_Delete(o);
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (int z = 0; z < 3; z++) copy_str(s.led_zone[z], sizeof s.led_zone[z], cJSON_GetObjectItem(o, LED_ZONE_KEYS[z]));
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "led_brightness"))) s.led_brightness = (uint8_t)v->valuedouble;
     if (cJSON_IsBool(v = cJSON_GetObjectItem(o, "key_beep"))) s.key_beep = cJSON_IsTrue(v);
     if (cJSON_IsBool(v = cJSON_GetObjectItem(o, "chime"))) s.chime = cJSON_IsTrue(v);
@@ -333,6 +397,15 @@ esp_err_t settings_from_json(const char *json, char *err, int err_len)
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "idle_min"))) s.idle_min = (uint8_t)(v->valuedouble > 255 ? 255 : v->valuedouble < 0 ? 0 : v->valuedouble);
     if (cJSON_IsBool(v = cJSON_GetObjectItem(o, "mic_stream"))) s.mic_stream = cJSON_IsTrue(v);
     copy_str(s.audio_view, sizeof s.audio_view, cJSON_GetObjectItem(o, "audio_view"));
+    if (cJSON_IsArray(v = cJSON_GetObjectItem(o, "world_order"))) {
+        for (int i = 0; i < 3; i++) {             /* anything but 0, 1, 2 once each fails validation */
+            const cJSON *p = cJSON_GetArrayItem(v, i);
+            int k = cJSON_IsNumber(p) ? (int)p->valuedouble : -1;
+            s.world_order[i] = (char)(k >= 0 && k <= 2 ? '0' + k : '?');
+        }
+        s.world_order[3] = 0;
+        if (cJSON_GetArraySize(v) != 3) s.world_order[0] = '?';
+    }
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "idle_brightness"))) s.idle_brightness = (uint8_t)(v->valuedouble > 255 ? 255 : v->valuedouble < 0 ? 0 : v->valuedouble);
     if (cJSON_IsArray(v = cJSON_GetObjectItem(o, "world_names"))) {
         for (int i = 0; i < 2; i++) copy_str(s.world_name[i], sizeof s.world_name[i], cJSON_GetArrayItem(v, i));

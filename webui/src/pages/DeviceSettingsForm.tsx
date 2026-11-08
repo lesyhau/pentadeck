@@ -2,7 +2,7 @@ import { useId, useState } from 'react'
 import {
   Button, ButtonRow, Card, Field, Input, NoticeLine, Reveal, Segmented, Select, Slider, SwitchRow, cn, type Note,
 } from '../ui'
-import { LED_HINTS, LED_NAMES, PANEL_NAMES, SLOT_NAMES } from '../lib/api'
+import { LED_EFFECT_HINTS, LED_EFFECT_NAMES, PANEL_NAMES, SLOT_NAMES } from '../lib/api'
 import type { Draft, DraftErrors } from '../lib/form'
 
 /**
@@ -17,7 +17,7 @@ export interface FormProps {
   errors: DraftErrors
   set: <K extends keyof Draft>(key: K, value: Draft[K]) => void
   panels: string[]
-  ledModes: string[]
+  ledEffects: string[]
 }
 
 // -- Display --------------------------------------------------------------------------------------
@@ -61,11 +61,11 @@ export function DisplaySection({ draft, set, errors, panels }: FormProps) {
     set('night', on)
   }
   return (
-    <Card title="Display" caption="How bright the five screens are, when they dim, and what each one shows.">
+    <Card title="Display" caption="Brightness, dimming and what each screen shows.">
       <Slider label="Brightness" value={draft.brightness} onChange={v => set('brightness', v)} format={pct} />
 
       <div>
-        <SwitchRow title="Dim at night" caption="Screens and LEDs dim; alerts can go quiet." checked={draft.night} onChange={setNight} />
+        <SwitchRow title="Dim at night" caption="Screens and LEDs dim." checked={draft.night} onChange={setNight} />
         <Reveal show={draft.night}>
           <div className="space-y-6 pt-5">
             <div className="grid grid-cols-2 gap-3 sm:gap-4">
@@ -79,8 +79,8 @@ export function DisplaySection({ draft, set, errors, panels }: FormProps) {
 
       <div>
         <SwitchRow
-          title="Low power when nobody's at the desk"
-          caption="After a while with no sound, no buttons and no keyboard or mouse on the PC, the screens dim, the LEDs go off and the device slows down. Any sound wakes it."
+          title="Low power when you're away"
+          caption="Dims the screens and turns the LEDs off when nothing happens for a while. Any sound wakes it."
           checked={draft.idle}
           onChange={v => set('idle', v)}
         />
@@ -102,7 +102,7 @@ export function DisplaySection({ draft, set, errors, panels }: FormProps) {
 
       <SwitchRow title="24-hour clock" checked={draft.hour24} onChange={v => set('hour24', v)} />
 
-      <Field id={screensId} group label="Screens, left to right" hint="What each screen shows, in the order they stand on the desk.">
+      <Field id={screensId} group label="Screens, left to right">
         <DeckPreview layout={draft.layout} />
         <ul className="divide-y divide-line rounded-lg border border-line">
           {draft.layout.map((panel, i) => (
@@ -140,34 +140,43 @@ export function DisplaySection({ draft, set, errors, panels }: FormProps) {
 
 const AUDIO_VIEWS = [{ value: 'eq', label: 'Equaliser' }, { value: 'vu', label: 'VU meter' }]
 const AUDIO_HINTS: Record<string, string> = {
-  eq: '16 bands from 50 Hz to 12 kHz, each with a falling peak cap.',
-  vu: 'A needle VU meter that swings like a real one: normal listening sits below 0, loud music swings into the red.',
+  eq: '16 bars, from bass to treble.',
+  vu: 'A needle meter, like on a stereo.',
 }
 
 // -- LEDs -----------------------------------------------------------------------------------------
 
-export function LedSection({ draft, set, ledModes, onTest, onResume, busy, notice }: FormProps & {
+const LED_ZONES = [
+  { key: 'led_left', label: 'Left strip' },
+  { key: 'led_back', label: 'Back light' },
+  { key: 'led_right', label: 'Right strip' },
+] as const
+
+export function LedSection({ draft, set, ledEffects, onTest, onResume, busy, notice }: FormProps & {
   onTest: () => void
   onResume: () => void
   busy: 'test' | 'resume' | null
   notice: Note | null
 }) {
-  const modeId = useId()
+  const zonesId = useId()
+  const options = ledEffects.map(e => ({ value: e, label: LED_EFFECT_NAMES[e] ?? e }))
   return (
-    <Card title="LEDs" caption="The side strips, the back and the buttons board.">
-      <Field id={modeId} group label="Mode">
-        <Segmented
-          labelledBy={`${modeId}-label`}
-          value={draft.led_mode}
-          onChange={v => set('led_mode', v)}
-          options={ledModes.map(m => ({ value: m, label: LED_NAMES[m] ?? m }))}
-        />
-        <p key={draft.led_mode} className="pd-fade-in mt-2 min-h-[2lh] max-w-[60ch] text-[13px] leading-snug text-ink-2">
-          {LED_HINTS[draft.led_mode] ?? ''}
-        </p>
+    <Card title="LEDs" caption="An effect for each strip. The buttons stay lit unless all three are off.">
+      <Field id={zonesId} group label="Effects">
+        <ul className="divide-y divide-line rounded-lg border border-line">
+          {LED_ZONES.map(({ key, label }) => (
+            <li key={key} className="flex items-center justify-between gap-3 py-2 pl-3 pr-2">
+              <div className="min-w-0">
+                <div className="truncate text-[15px] font-medium text-ink">{label}</div>
+                <div key={draft[key]} className="pd-fade-in text-xs leading-snug text-ink-2">{LED_EFFECT_HINTS[draft[key]] ?? ''}</div>
+              </div>
+              <Select className="w-40 shrink-0" ariaLabel={label} value={draft[key]} options={options} onChange={v => set(key, v)} />
+            </li>
+          ))}
+        </ul>
       </Field>
 
-      <Slider label="LED brightness" value={draft.led_brightness} onChange={v => set('led_brightness', v)} format={pct} />
+      <Slider label="Brightness" value={draft.led_brightness} onChange={v => set('led_brightness', v)} format={pct} />
 
       <div className="space-y-3">
         <ButtonRow>
@@ -206,10 +215,10 @@ const SOUNDS = [
 
 export function MicSection({ draft, set }: FormProps) {
   return (
-    <Card title="Microphone" caption="The device's mic as a microphone on your PC, over Wi-Fi.">
+    <Card title="Microphone" caption="Use the device's mic on your PC, over Wi-Fi.">
       <SwitchRow
         title="Let PCs use the mic"
-        caption="A PC with the agent's mic option (and the token) can stream it; the AUDIO screen shows MIC LIVE while one does. Off cuts any stream at once. The equaliser, tuner and the low-power wake-up keep using the mic either way."
+        caption="The AUDIO screen shows MIC LIVE while a PC listens. The device's own features use the mic either way."
         checked={draft.mic_stream}
         onChange={v => set('mic_stream', v)}
       />
@@ -226,13 +235,13 @@ export function SoundsSection({ draft, set, errors, onBeep, busy, notice }: Form
   const [sound, setSound] = useState('0')
   const daysId = useId()
   return (
-    <Card title="Sounds & alarm" caption="The buzzer: alerts, key clicks, the hourly chime and a daily alarm.">
+    <Card title="Sounds & alarm" caption="Alerts, key clicks, the chime and the alarm.">
       <Slider label="Volume" value={draft.buzzer_volume} min={1} max={100} onChange={v => set('buzzer_volume', v)} format={pct} />
 
       <div>
         <SwitchRow
           title="Alerts"
-          caption="Heat, the home lab going down or coming back, services, mains power."
+          caption="Heat, the home lab going down or back up, mains power."
           checked={draft.buzzer}
           onChange={v => set('buzzer', v)}
         />
@@ -241,7 +250,7 @@ export function SoundsSection({ draft, set, errors, onBeep, busy, notice }: Form
           <div className="pt-5">
             <div>
               <p className="text-sm font-medium text-ink">Alert temperatures</p>
-              <p className="mb-3 mt-0.5 text-[13px] leading-snug text-ink-2">Beep when a part reaches this, from 50 to 120 °C.</p>
+              <p className="mb-3 mt-0.5 text-[13px] leading-snug text-ink-2">Beep at this temperature (50–120 °C).</p>
               <div className="grid grid-cols-3 gap-3 sm:gap-4">
                 {temps.map(([key, label]) => (
                   <Input
@@ -265,7 +274,7 @@ export function SoundsSection({ draft, set, errors, onBeep, busy, notice }: Form
 
       <SwitchRow
         title="Quiet at night"
-        caption={draft.night ? 'No alerts inside the night window.' : 'Turn on “Dim at night” to set the window.'}
+        caption={draft.night ? 'No alerts during the night hours.' : 'Needs “Dim at night”.'}
         checked={draft.quiet_night}
         onChange={v => set('quiet_night', v)}
         disabled={!draft.night}
@@ -273,14 +282,14 @@ export function SoundsSection({ draft, set, errors, onBeep, busy, notice }: Form
 
       <SwitchRow
         title="Key beep"
-        caption="A short click when you press a button on the device."
+        caption="A click on every button press."
         checked={draft.key_beep}
         onChange={v => set('key_beep', v)}
       />
 
       <SwitchRow
         title="Hourly chime"
-        caption="Two soft notes on the hour, like a watch. Silent in a quiet night."
+        caption="Two soft notes on the hour."
         checked={draft.chime}
         onChange={v => set('chime', v)}
       />
@@ -288,7 +297,7 @@ export function SoundsSection({ draft, set, errors, onBeep, busy, notice }: Form
       <div>
         <SwitchRow
           title="Daily alarm"
-          caption="Plays a melody for a minute. On the device: LIGHT snoozes 5 minutes, any other button stops it."
+          caption="LIGHT snoozes it for 5 minutes; any other button stops it."
           checked={draft.alarm_on}
           onChange={v => set('alarm_on', v)}
         />
@@ -327,7 +336,7 @@ const URL_INPUT = { type: 'url', inputMode: 'url', autoCapitalize: 'off', autoCo
 
 export function DataSection({ draft, set, errors }: FormProps) {
   return (
-    <Card title="Data & location" caption="Where the stats come from, and where the weather on the clock screen is for.">
+    <Card title="Data & location" caption="Where the stats come from, and your location for the weather.">
       <Input label="PC stats agent" {...URL_INPUT} placeholder="http://pc.local:8765/stats" value={draft.src0} onChange={e => set('src0', e.target.value)} error={errors.src0} />
       <Input label="Home lab stats agent" {...URL_INPUT} placeholder="http://homelab.local:8765/stats" value={draft.src1} onChange={e => set('src1', e.target.value)} error={errors.src1} />
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
@@ -363,17 +372,19 @@ const PLACES: { name: string; tz: string }[] = [
   { name: 'SYDNEY', tz: 'AEST-10AEDT,M10.1.0,M4.1.0/3' },
 ]
 
+const titleCase = (name: string) => name.toLowerCase().replace(/(^|\s)(\w)/g, (_, s: string, c: string) => s + c.toUpperCase())
+
 function PlaceFields({ which, draft, set, errors }: FormProps & { which: 0 | 1 }) {
   const nameKey = which ? 'w1name' : 'w0name', tzKey = which ? 'w1tz' : 'w0tz'
   const known = PLACES.find(p => p.name === draft[nameKey].trim().toUpperCase() && p.tz === draft[tzKey].trim())
   const id = useId()
   return (
     <div className="space-y-3">
-      <Field id={id} label={which ? 'Right of home' : 'Left of home'}>
+      <Field id={id} label={which ? 'Second place' : 'First place'}>
         <Select
           id={id}
           value={known ? known.name : 'custom'}
-          options={[...PLACES.map(p => ({ value: p.name, label: p.name.charAt(0) + p.name.slice(1).toLowerCase().replace(/ (\w)/g, (_, c: string) => ' ' + c.toUpperCase()) })), { value: 'custom', label: 'Somewhere else…' }]}
+          options={[...PLACES.map(p => ({ value: p.name, label: titleCase(p.name) })), { value: 'custom', label: 'Somewhere else…' }]}
           onChange={v => {
             const p = PLACES.find(q => q.name === v)
             if (p) { set(nameKey, p.name); set(tzKey, p.tz) }
@@ -390,11 +401,41 @@ function PlaceFields({ which, draft, set, errors }: FormProps & { which: 0 | 1 }
   )
 }
 
+/** Screens 2, 3 and 4 of the World mode: which clock each shows. Picking one already shown swaps the two. */
+function ClockOrder({ draft, set }: FormProps) {
+  const id = useId()
+  const names = ['Home', titleCase(draft.w0name.trim()) || 'First place', titleCase(draft.w1name.trim()) || 'Second place']
+  const options = names.map((label, place) => ({ value: String(place), label }))
+  const pick = (slot: number, place: number) => {
+    const order = [...draft.world_order]
+    const from = order.indexOf(place)
+    order[from] = order[slot]
+    order[slot] = place
+    set('world_order', order)
+  }
+  return (
+    <Field id={id} group label="Order" hint="The AWAKE screen lists them in the same order.">
+      <ul className="divide-y divide-line rounded-lg border border-line">
+        {draft.world_order.map((place, slot) => (
+          <li key={slot} className="flex items-center justify-between gap-3 py-2 pl-3 pr-2">
+            <div className="min-w-0">
+              <div className="truncate text-[15px] font-medium text-ink">Screen {slot + 2}</div>
+              {slot === 1 && <div className="text-xs text-ink-2">Middle</div>}
+            </div>
+            <Select className="w-40 shrink-0" ariaLabel={`Screen ${slot + 2}`} value={String(place)} options={options} onChange={v => pick(slot, Number(v))} />
+          </li>
+        ))}
+      </ul>
+    </Field>
+  )
+}
+
 export function WorldSection(props: FormProps) {
   return (
-    <Card title="World clock" caption="The two places shown either side of home in the World mode.">
+    <Card title="World clock" caption="Two more places beside home, in the order you choose.">
       <PlaceFields which={0} {...props} />
       <PlaceFields which={1} {...props} />
+      <ClockOrder {...props} />
     </Card>
   )
 }

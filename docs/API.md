@@ -13,7 +13,7 @@ The device serves everything on port 80, except the microphone stream (port 8081
 |---|---|---|---|
 | GET | `/` | | the settings page (gzip) |
 | GET | `/api/status` | | live state: the mode shown (`mode`), the tempo finder's reading (`tempo_bpm`), firmware, slot, uptime, IP, RSSI, heap, time, weather, each source's latest stats, the microphone's level (`mic.dbfs`, `mic.dba`) and how many are streaming it (`mic.listeners`), the low‑power state (`power.state`: `full` or `idle`; `power.last_sign`: what last showed someone, e.g. `sound`, `button`, `pc input`; `power.quiet_s`), render statistics |
-| GET | `/api/settings` | | the settings (below), plus the allowed values (`panels`, `led_modes`) |
+| GET | `/api/settings` | | the settings (below), plus the allowed values (`panels`, `led_effects`, `led_modes`) |
 | POST | `/api/settings` | JSON, any subset of the settings | the settings now in effect, or `400` with the reason |
 | GET | `/api/screen?s=0..4` | | what that screen shows now: 128×128 big‑endian RGB565 (32768 bytes). `firmware/tools/screenshot.py` saves all five as a PNG |
 | POST | `/api/beep` | `?p=N&v=0..100`, or `?hz=50..8000&ms=..&v=..` | plays a sound: 0 test, 1 hot, 2 link lost, 3 link restored, 4 mains lost, 5 key, 6 tick, 7 accent, 8 timer done, 9 mode, 10 battery low, 11 start-up, 12 hourly chime; or one plain tone |
@@ -37,14 +37,15 @@ The device serves everything on port 80, except the microphone stream (port 8081
   "layout": ["lab", "cpu", "nav", "gpu", "audio"],
   "buzzer": true, "buzzer_volume": 40, "quiet_night": true,
   "alert_cpu_temp": 90, "alert_gpu_temp": 85, "alert_vram_temp": 95,
-  "led_mode": "status", "led_brightness": 40,
+  "led_left": "cpu", "led_back": "lab", "led_right": "gpu", "led_brightness": 40,
   "key_beep": true,
   "chime": false, "alarm_on": true, "alarm_time": "07:00", "alarm_days": 31,
   "tuner_a4": 440, "metro_bpm": 100, "timer_min": 5,
   "idle_min": 10, "idle_brightness": 10,
   "mic_stream": true,
   "audio_view": "eq",
-  "world_names": ["LONDON", "NEW YORK"], "world_tz": ["GMT0BST,M3.5.0/1,M10.5.0", "EST5EDT,M3.2.0,M11.1.0"]
+  "world_names": ["LONDON", "NEW YORK"], "world_tz": ["GMT0BST,M3.5.0/1,M10.5.0", "EST5EDT,M3.2.0,M11.1.0"],
+  "world_order": [1, 0, 2]
 }
 ```
 
@@ -55,8 +56,10 @@ The device serves everything on port 80, except the microphone stream (port 8081
 | `lat`, `lon` | the location for the weather. `0, 0` means not set. |
 | `night_start`, `night_end` | `HH:MM`. Empty means no night window. During the window the screens and LEDs dim and the buzzer stays quiet. |
 | `layout` | the five screens from left to right, each one of `lab`, `cpu`, `nav` (clock), `gpu`, `audio`, `off` |
-| `led_mode` | one of `off`, `glow`, `status`, `music` (all three strips one loudness meter, no load alerts) |
+| `led_left`, `led_back`, `led_right` | each LED zone's effect: `off`, `glow` (steady teal), `breathe` (teal fading in and out), `rainbow`, `cpu` or `gpu` (the PC's load as a meter; orange from 60 % load or 75 °C, red from 80 % or 88 °C, blinking on a load alert), `lab` (the home lab's health), `music` (the room's loudness). The buttons board's LEDs stay on unless all three are `off` |
+| `led_mode` | a preset for all three zones: `off`, `glow`, `status` (`cpu`, `lab`, `gpu`) or `music`. Read back as the preset the zones match, or `custom`. Zones sent beside it win. The device's setup menu (LED MODE) and a long LIGHT press work with the presets |
 | `world_names`, `world_tz` | the World mode's two other places: a name (up to 15 letters) and a POSIX time zone each. Daylight saving works with the `Mm.w.d` rules. |
+| `world_order` | which clock the World mode shows on screens 2, 3 and 4: `0` = home, `1` and `2` = the two places, each once. `[1, 0, 2]` puts home in the middle. The AWAKE planner lists them top to bottom in the same order |
 | `tuner_a4`, `metro_bpm`, `timer_min` | what the tuner, metronome and timer were left at (saved 2.5 s after the last button press) |
 | `idle_min` | low power after this many minutes with no sign of anyone (no sound above the room's background, no button, no keyboard or mouse on a PC whose agent reports `input_idle_s`), 0..120; 0 = never. Day or night doesn't matter. See [Low power](#low-power). |
 | `mic_stream` | PCs may stream the mic (port 8081). Off refuses new streams and cuts open ones; the device's own uses of the mic (equaliser, tuner, low‑power wake‑up) carry on |
@@ -91,7 +94,7 @@ When nobody seems to be at the desk for `idle_min` minutes, the device goes into
 | | Full power | Low power |
 |---|---|---|
 | Screens | the set brightness, 30 fps | fade to `idle_brightness`, 4 fps |
-| LEDs | the LED mode | off |
+| LEDs | each zone's effect | off |
 | Microphone | 32 kHz, spectrum, pitch, tempo, chords | 8 kHz, loudness only (enough to hear someone) |
 | Wi‑Fi | always awake | modem sleep (replies take up to a few hundred ms longer) |
 | Agents | polled every `poll_ms` | polled every 5 s |

@@ -377,9 +377,10 @@ const mode_def_t MODE_DEF_ALARM = {
 
 /* ================================================================== world */
 
-/* Home (the settings' time zone) in the middle, the two other places either side, UTC on the left,
- * and on the right who is awake when: one 24-hour row per place on home's time axis. Left / right
- * shift every clock by half an hour (planning a call); power goes back to now. */
+/* UTC on the left; home (the settings' time zone) and the two other places on screens 2 to 4, in the
+ * order of the setting world_order (home in the middle by default); on the right who is awake when:
+ * one 24-hour row per place, in the same order, on home's time axis. Left / right shift every clock by
+ * half an hour (planning a call); power goes back to now. */
 static int s_wc_shift;                /* minutes */
 
 static void wc_key(const btn_event_t *e)
@@ -402,21 +403,26 @@ static int wc_local(int place, time_t utc, struct tm *tm)
     return tz_local(&z, utc, tm);
 }
 
-static void wc_offset(char *out, size_t n, int secs)
+static void wc_offset(char *out, size_t n, int secs)         /* "+6 H", "-3:30 H" */
 {
-    if (secs == 0) { snprintf(out, n, "SAME AS HOME"); return; }
     int m = abs(secs) / 60;
     if (m % 60) snprintf(out, n, "%c%d:%02d H", secs < 0 ? '-' : '+', m / 60, m % 60);
     else snprintf(out, n, "%c%d H", secs < 0 ? '-' : '+', m / 60);
 }
 
-static void wc_clock(hud_fb_t *fb, int place, const char *name, time_t utc, int home_off, bool home)
+/* place: 0 home, 1 and 2 the world clocks, 3 UTC. The middle screen's header is home's time (modes_draw),
+ * so a place there gives its name in the footer, beside its offset. */
+static const char *wc_name(int place)
+{
+    return place == 0 ? "HOME" : place == 3 ? "UTC" : g_cfg.world_name[place - 1];
+}
+
+static void wc_clock(hud_fb_t *fb, int place, time_t utc, int home_off, bool middle)
 {
     struct tm tm;
     int off = wc_local(place, utc, &tm);
-    char t[24];
-    /* home is on the middle screen, whose header is the clock (modes_draw); its footer says HOME */
-    if (!home) hud_header(fb, &font_b9, name, 12, 2, 0, 0, C_LEGIBLE, C_HUD_DIM);
+    char t[48];
+    if (!middle) hud_header(fb, &font_b9, wc_name(place), 12, 2, 0, 0, C_LEGIBLE, C_HUD_DIM);
     bool day = tm.tm_hour >= 6 && tm.tm_hour < 18;
     hud_image(fb, day ? &img_icon_clear_day : &img_icon_clear_night, 64 - 11, 23);
     strftime(t, sizeof t, g_cfg.hour24 ? "%H:%M" : "%I:%M", &tm);
@@ -428,10 +434,31 @@ static void wc_clock(hud_fb_t *fb, int place, const char *name, time_t utc, int 
         snprintf(t + k, sizeof t - k, tm.tm_hour < 12 ? " \xC2\xB7 AM" : " \xC2\xB7 PM");
     }
     hud_text(fb, 64, 87, t, &font_b8, C_LEGIBLE, "mm", 1);
-    if (place == 3) snprintf(t, sizeof t, "UNIVERSAL");
-    else if (home) snprintf(t, sizeof t, "HOME");
-    else wc_offset(t, sizeof t, off - home_off);
+    char o[16];
+    if (place == 3) {
+        snprintf(t, sizeof t, "UNIVERSAL");
+    } else if (place == 0) {
+        if (middle) snprintf(t, sizeof t, "HOME");
+        else { wc_offset(o, sizeof o, off); snprintf(t, sizeof t, "UTC %s", o); }
+    } else {
+        if (off == home_off) snprintf(o, sizeof o, middle ? "= HOME" : "SAME AS HOME");
+        else wc_offset(o, sizeof o, off - home_off);
+        if (middle) {                             /* the name, shortened to fit, then the offset */
+            char nm[24];
+            int room = 118 - hud_text_w(o, &font_b7, 1) - hud_text_w(" \xC2\xB7 ", &font_b7, 1);
+            hud_ellipsize(nm, sizeof nm, wc_name(place), &font_b7, room, 1);
+            snprintf(t, sizeof t, "%s \xC2\xB7 %s", nm, o);
+        } else {
+            snprintf(t, sizeof t, "%s", o);
+        }
+    }
     hud_text(fb, 64, 101, t, &font_b7, C_CAPTION, "mm", 1);
+}
+
+static int wc_place_on(int screen)                /* the place on screen 1..3 (world_order) */
+{
+    int p = g_cfg.world_order[screen - 1] - '0';
+    return p >= 0 && p <= 2 ? p : (screen == 2 ? 0 : screen == 1 ? 1 : 2);
 }
 
 static void wc_draw(hud_fb_t *fb, int s)
@@ -446,10 +473,10 @@ static void wc_draw(hud_fb_t *fb, int s)
     int home_off = wc_local(0, utc, &home);
     char t[24];
     switch (s) {
-    case 0: wc_clock(fb, 3, "UTC", utc, home_off, false); mk_softkey(fb, "LIGHT"); break;
-    case 1: wc_clock(fb, 1, g_cfg.world_name[0], utc, home_off, false); mk_softkey(fb, "- 30 MIN"); break;
+    case 0: wc_clock(fb, 3, utc, home_off, false); mk_softkey(fb, "LIGHT"); break;
+    case 1: wc_clock(fb, wc_place_on(1), utc, home_off, false); mk_softkey(fb, "- 30 MIN"); break;
     case 2:
-        wc_clock(fb, 0, "HOME", utc, home_off, true);
+        wc_clock(fb, wc_place_on(2), utc, home_off, true);
         if (s_wc_shift) {
             snprintf(t, sizeof t, "NOW %+d:%02d", s_wc_shift / 60, abs(s_wc_shift) % 60);
             mk_softkey(fb, t);
@@ -457,19 +484,19 @@ static void wc_draw(hud_fb_t *fb, int s)
             mk_softkey(fb, "NOW");
         }
         break;
-    case 3: wc_clock(fb, 2, g_cfg.world_name[1], utc, home_off, false); mk_softkey(fb, "+ 30 MIN"); break;
+    case 3: wc_clock(fb, wc_place_on(3), utc, home_off, false); mk_softkey(fb, "+ 30 MIN"); break;
     case 4: {
         mk_title(fb, "AWAKE");
-        /* one row per place on home's 24 hours, its name above it: dim 7..22 h local (awake),
-         * bright 9..17 h (work); the white line is now */
+        /* one row per place on home's 24 hours, top to bottom in the screens' order, its name above
+         * it: dim 7..22 h local (awake), bright 9..17 h (work); the white line is now */
         const int x0 = 10, x1 = 118, ys[3] = { 34, 56, 78 };
-        const char *labels[3] = { "HOME", g_cfg.world_name[0], g_cfg.world_name[1] };
         time_t midnight = utc - (home.tm_hour * 3600 + home.tm_min * 60 + home.tm_sec);
         for (int r = 0; r < 3; r++) {
-            hud_text(fb, x0, ys[r] - 5, labels[r], &font_b7, r == 0 ? C_LEGIBLE : C_CAPTION, "lm", 1);
+            int place = wc_place_on(r + 1);
+            hud_text(fb, x0, ys[r] - 5, wc_name(place), &font_b7, place == 0 ? C_LEGIBLE : C_CAPTION, "lm", 1);
             for (int h = 0; h < 24; h++) {
                 struct tm lt;
-                wc_local(r, midnight + h * 3600 + 1800, &lt);
+                wc_local(place, midnight + h * 3600 + 1800, &lt);
                 int sx = x0 + (x1 - x0) * h / 24, ex = x0 + (x1 - x0) * (h + 1) / 24 - 1;
                 hud_color_t c = lt.tm_hour >= 9 && lt.tm_hour < 17 ? C_ACCENT : lt.tm_hour >= 7 && lt.tm_hour < 22 ? C_HUD_DIM : C_OFF;
                 hud_rect(fb, sx, ys[r], ex, ys[r] + 6, c);

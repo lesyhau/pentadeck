@@ -22,7 +22,7 @@ static ui_mode_t s_mode = MODE_DASH;
 static bool s_sleep;
 static btn_key_t s_swallow = KEY_NONE;    /* the button whose press woke the device from low power */
 static uint32_t s_boost_until;        /* LIGHT: full brightness until then */
-static char s_prev_led[8] = "status"; /* the LED mode a long LIGHT turns back on */
+static char s_prev_led[3][8] = { "cpu", "lab", "gpu" };   /* the zones' effects a long LIGHT turns back on */
 static uint32_t s_save_at;            /* a pending save of g_cfg's in-place changes, 0 = none */
 
 static struct {
@@ -179,7 +179,7 @@ static void ring_end(bool snooze)
 static int s_sel;
 static bool s_edit;
 static tg_settings_t s_draft;
-static const char *LED_MODES[] = { "off", "glow", "status", "music" };
+static const char *LED_MODES[] = { "off", "glow", "status", "music" };    /* settings.c's presets */
 
 static const char *item_name(int i)
 {
@@ -195,7 +195,7 @@ static void item_value(const tg_settings_t *s, int i, char *out, size_t n, float
     switch (i) {
     case 0: snprintf(out, n, "%d%%", s->brightness); *bar = s->brightness / 100.0f; break;
     case 1: snprintf(out, n, "%d%%", s->night_brightness); *bar = s->night_brightness / 100.0f; break;
-    case 2: snprintf(out, n, "%s", s->led_mode); for (char *c = out; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32; break;
+    case 2: snprintf(out, n, "%s", settings_led_preset_of(s)); for (char *c = out; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32; break;
     case 3: snprintf(out, n, "%d%%", s->led_brightness); *bar = s->led_brightness / 100.0f; break;
     case 4: snprintf(out, n, "%d%%", s->buzzer_volume); *bar = s->buzzer_volume / 100.0f; break;
     case 5: snprintf(out, n, "%s", s->buzzer ? "ON" : "OFF"); break;
@@ -215,9 +215,9 @@ static void item_step(tg_settings_t *s, int i, int d)
     case 0: s->brightness = (uint8_t)clampi(s->brightness + d * 5, 5, 100); break;
     case 1: s->night_brightness = (uint8_t)clampi(s->night_brightness + d * 5, 0, 100); break;
     case 2: {
-        int k = 0;
-        for (int j = 0; j < 4; j++) if (strcmp(s->led_mode, LED_MODES[j]) == 0) k = j;
-        strlcpy(s->led_mode, LED_MODES[(k + d + 4) % 4], sizeof s->led_mode);
+        int k = d > 0 ? -1 : 0;                       /* custom zones (set on the web page): to the first or last preset */
+        for (int j = 0; j < 4; j++) if (strcmp(settings_led_preset_of(s), LED_MODES[j]) == 0) k = j;
+        settings_led_preset(s, LED_MODES[(k + d + 4) % 4]);
         break;
     }
     case 3: s->led_brightness = (uint8_t)clampi(s->led_brightness + d * 5, 0, 100); break;
@@ -385,12 +385,13 @@ static void key(const btn_event_t *e)
             s_boost_until = g_ms + 10000;
         } else if (e->kind == BTN_LONG) {
             tg_settings_t c = g_cfg;
-            bool off = strcmp(c.led_mode, "off") == 0;
-            if (!off) strlcpy(s_prev_led, c.led_mode, sizeof s_prev_led);
-            strlcpy(c.led_mode, off ? s_prev_led : "off", sizeof c.led_mode);
+            bool off = settings_leds_off(&c);
+            if (!off) memcpy(s_prev_led, c.led_zone, sizeof s_prev_led);
+            if (off) memcpy(c.led_zone, s_prev_led, sizeof c.led_zone);
+            else settings_led_preset(&c, "off");
             mk_save(&c);
             char v[16];
-            snprintf(v, sizeof v, "%s", off ? s_prev_led : "OFF");
+            snprintf(v, sizeof v, "%s", off ? settings_led_preset_of(&c) : "OFF");
             for (char *p = v; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
             mk_toast("LEDS", v, NAN);
         }
