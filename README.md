@@ -30,11 +30,13 @@ The order is a setting, and any screen can be turned off.
   - The buzzer sounds for high temperatures, a machine going offline, a service going down, or a
     UPS or laptop losing AC power.
   - The buzzer stays quiet during night hours.
-- **The LED chain** (both side strips, the back and the buttons board) can:
-  - show CPU and GPU load as meters, with the home lab's health on the back;
-  - act as a music visualiser: all three strips one loudness meter;
-  - give a steady glow;
-  - stay off.
+- **The LED chain** (both side strips, the back and the buttons board): the left strip, the back
+  light and the right strip each pick their own effect:
+  - CPU or GPU load as a meter, turning orange and red when busy or hot;
+  - the home lab's health;
+  - a music visualiser (the room's loudness);
+  - a steady glow, a slow breath or a rainbow;
+  - off.
 - **A Wi‑Fi microphone for your PC.** The stats agent can play the device's mic into a virtual
   audio cable, so Zoom, Discord or OBS can use it ([agent/README.md](agent/README.md#microphone)).
   The AUDIO screen turns into a red **MIC LIVE** while it's on, and a switch on the settings page
@@ -63,8 +65,9 @@ The order is a setting, and any screen can be turned off.
   - **Metronome:** 30–240 BPM, with a pendulum, beat lights and a click on the buzzer.
   - **Stopwatch** with laps, and a **timer** that drains the LED strips and plays a melody at zero.
   - **Alarm:** a daily alarm (with LIGHT to snooze) and an hourly chime, set Casio‑style on the device.
-  - **World clock:** home in the middle, two places of your choice either side, and UTC. A
-    24‑hour planner shows who is at work or awake when, and left/right shift every clock to plan a call.
+  - **World clock:** home and two places of your choice, in the order you set (home in the middle
+    by default), and UTC. A 24‑hour planner shows who is at work or awake when, in the same order,
+    and left/right shift every clock to plan a call.
   - **Sound level:** dBA or dBZ, with max, min, Leq and a 16‑band spectrum across three screens.
   - **Stars:** a starfield through all five screens that speeds up with the music.
   - **Settings:** brightness, LEDs, volume, alerts, key beep, 12/24 h, the AUDIO screen's view, edited on the device.

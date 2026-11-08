@@ -26,7 +26,8 @@ typedef struct {
     uint8_t alert_gpu_temp;          /* °C, PC GPU */
     uint8_t alert_vram_temp;         /* °C, PC VRAM */
     /* v3: the LED chain */
-    char led_mode[8];                /* off, glow, status, music */
+    char led_mode_v10[8];            /* until v10 the one LED mode (off, glow, status, music); v11 reads it
+                                        once into led_zone, then leaves it */
     uint8_t led_brightness;          /* 0..100 %, scaled by night_brightness inside the night window */
     /* v4: the buttons */
     bool key_beep;                   /* a short click on every button press */
@@ -49,7 +50,20 @@ typedef struct {
     bool mic_stream;                 /* PCs may stream the mic (stream.c); the device's own uses don't change */
     /* v10 */
     char audio_view[4];              /* the AUDIO screen: "eq" (16-band equaliser) or "vu" (a needle VU meter) */
+    /* v11 */
+    char led_zone[3][8];             /* each LED zone's effect (LED_ZONE_*): off, glow, breathe, rainbow, cpu, gpu,
+                                        lab, music */
+    char world_order[4];             /* the World mode's clocks on screens 2, 3, 4: a digit each, 0 = home,
+                                        1 and 2 = world_name[0] and [1]; "102" puts home in the middle */
 } tg_settings_t;
+
+enum { LED_ZONE_LEFT, LED_ZONE_BACK, LED_ZONE_RIGHT };
+
+/* The old single LED modes, now presets over the three zones: "off" (all off), "glow" (all glow),
+ * "status" (cpu, lab, gpu), "music" (all music). */
+bool settings_led_preset(tg_settings_t *s, const char *preset);   /* false: no such preset */
+const char *settings_led_preset_of(const tg_settings_t *s);       /* the preset the zones match, or "custom" */
+bool settings_leds_off(const tg_settings_t *s);                   /* every zone off */
 
 esp_err_t settings_init(void);                 /* load from NVS (or defaults) */
 void settings_get(tg_settings_t *out);         /* copy of the current settings */

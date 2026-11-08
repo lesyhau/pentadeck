@@ -103,7 +103,7 @@ woff2), and each extra Inter weight adds about 24 KB. Add a weight only if the d
 | GET | `/status` | The firmware's record: version, build, slots, uptime, last reset reason |
 | POST | `/api/pair` | No token. Asks the owner on the device's screens (60 s); answers `{id, code}`, or 429 while a request is pending |
 | GET | `/api/pair?id=<id>` | `{"state":"waiting"}`, `"refused"`, or `"allowed"` with the token |
-| GET | `/api/settings` | Current settings, plus `led_modes` and `panels` |
+| GET | `/api/settings` | Current settings, plus `led_effects`, `led_modes` and `panels` |
 | POST | `/api/settings` | JSON body; answers with the saved settings |
 | POST | `/api/leds?mode=groups&b=60` / `?mode=auto` | LED test pattern / resume effects |
 | POST | `/api/beep?v=<volume>` | Test beep |

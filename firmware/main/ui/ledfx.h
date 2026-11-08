@@ -4,15 +4,18 @@
  * ("TimesGate LED-R"): 20 LEDs, chained in the order of their printed names LED2, 4, 6..11 (the short
  * column, on the back edge, bottom to top), LED12..22 (the long column, on the front edge, top to
  * bottom) and LED23 (bottom, middle). Meters fill the side strips by row (ledfx.c knows each LED's),
- * so both reach the same height at the same level. Modes (setting "led_mode"):
- *   off     everything dark
- *   glow    a steady teal glow
- *   status  left strip = PC CPU load, right strip = PC GPU load (both filling from the bottom,
- *           orange from 60 %, red from 80 %, blinking like the screens); back = home lab health
- *   music   all three strips = the same loudness meter: the sides fill from the bottom, the back from
- *           the middle out (no load alerts, so they always follow the sound)
- * In glow the side strips still flash orange/red on a CPU/GPU load alert.
- * The buttons board's LEDs (GPIO44, single colour) stay on at the LED brightness unless the mode is off. */
+ * so both reach the same height at the same level.
+ * Each zone (left strip, back light, right strip) runs its own effect (settings "led_left", "led_back",
+ * "led_right"); meters fill the sides from the bottom and the back from the middle out:
+ *   off      dark
+ *   glow     a steady teal
+ *   breathe  teal, slowly brightening and dimming
+ *   rainbow  the colour wheel rolling along the zone
+ *   cpu/gpu  the PC's CPU or GPU load as a meter; orange from 60 % load or 75 °C, red from 80 % or
+ *            88 °C (the screens' thresholds); a load alert blinks like the screens
+ *   lab      the home lab's health: teal breathing, amber on battery, a red pulse when something is down
+ *   music    a loudness meter from the mic
+ * The buttons board's LEDs (GPIO44, single colour) stay on at the LED brightness unless every zone is off. */
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -26,9 +29,9 @@
 void ledfx_start(void);
 void ledfx_hold(uint32_t ms);      /* pause the effects (LED tests from the web API) */
 
-/* What a mode other than the dashboard wants on the chain (the LED mode setting still decides
- * whether the LEDs are on at all, and how bright):
- *   NONE      the normal effect for the LED mode
+/* What a mode other than the dashboard wants on the chain (the LED settings still decide whether
+ * the LEDs are on at all, and how bright):
+ *   NONE      each zone's own effect
  *   TUNER     a = cents off the nearest note (NAN = no note): flat lights the left strip, sharp
  *             the right, green all round when within 5 cents
  *   PROGRESS  a = 0..1 left (both strips drain from the top), b = 1 while running
