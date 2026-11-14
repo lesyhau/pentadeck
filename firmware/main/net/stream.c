@@ -88,7 +88,9 @@ static void client_task(void *arg)
     client_t c = *(client_t *)arg;
     free(arg);
 
+    /* any origin may read it (the settings page plays it from port 80); the token still guards it */
     static const char head[] = "HTTP/1.0 200 OK\r\nContent-Type: audio/wav\r\nCache-Control: no-store\r\n"
+                               "Access-Control-Allow-Origin: *\r\n"
                                "Connection: close\r\n\r\n";
     /* WAV header with the sizes left open (0xFFFFFFFF), the usual way to stream one */
     uint8_t wav[44];
@@ -155,7 +157,7 @@ static void client_task(void *arg)
 static void reply(int fd, const char *status, const char *text)
 {
     char b[192];
-    int n = snprintf(b, sizeof b, "HTTP/1.0 %s\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n%s", status, text);
+    int n = snprintf(b, sizeof b, "HTTP/1.0 %s\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n%s", status, text);
     send_all(fd, b, n);
 }
 

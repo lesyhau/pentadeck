@@ -13,6 +13,8 @@
  *   CHORDS    names the chord being played and the song's key the way a dizi is marked ("1 = Bb":
  *             the major scale sharing the song's notes), with the dizi's notes in that key and the
  *             pitch classes heard. Power: new song. Left: hold.
+ *   EAR       ear training: the buzzer plays a note, sing or play it back; scored by the tuner, whatever
+ *             the octave. Power: a new note. Left: again. Right: how close counts (50, 25, 10 cents).
  *   METRO     metronome. Left / right: tempo. Power: start / stop.
  *   CHRONO    stopwatch. Power: start / stop. Left: lap while running, reset while stopped.
  *   TIMER     countdown. Left / right: minutes. Power: start / pause. Left while paused: reset.
@@ -22,8 +24,15 @@
  *             when. Left / right: shift every clock by 30 min (planning a call). Power: back to now.
  *   SOUND     sound level meter (dBA / dBZ), max, min, Leq, and a spectrum. Power: reset.
  *   STARS     a starfield across the five screens; it speeds up with the music.
+ *   VISUAL    visual effects from the mic as one picture across the five screens (ui/viz.h); the LEDs
+ *             flash on the beat. Left / right: the effect. Power: the colours (accent, rainbow, fire).
  *   SETUP     the device's settings, five to a page, one per screen. Left / right: choose.
  *             Power: edit (the value blinks), left / right change it, power saves, MODE cancels.
+ *
+ * A double clap (settings "clap") can turn the LEDs off / on, give full brightness, step to the next
+ * mode or go back to the dashboard; it also snoozes a ringing alarm and closes a notification.
+ * Notifications (POST /api/notify), sounds the device has learned and the day's sound dose show as a card
+ * over the middle screen, the LEDs pulsing; any button closes it (that press does nothing else).
  *
  * Everywhere: LIGHT = full brightness for 10 s; long LIGHT = LEDs off / on; long power = sleep
  * (screens and LEDs dark; any button wakes the device, and that press does nothing else).
@@ -36,8 +45,8 @@
 #include "gfx/hud.h"
 
 typedef enum {
-    MODE_DASH, MODE_TUNER, MODE_LONGTONE, MODE_TEMPO, MODE_CHORDS, MODE_METRO, MODE_CHRONO, MODE_TIMER, MODE_ALARM,
-    MODE_WORLD, MODE_SOUND, MODE_STARS, MODE_SETUP, MODE_COUNT
+    MODE_DASH, MODE_TUNER, MODE_LONGTONE, MODE_TEMPO, MODE_CHORDS, MODE_EAR, MODE_METRO, MODE_CHRONO, MODE_TIMER, MODE_ALARM,
+    MODE_WORLD, MODE_SOUND, MODE_STARS, MODE_VISUAL, MODE_SETUP, MODE_COUNT
 } ui_mode_t;
 
 void modes_init(void);
@@ -59,6 +68,10 @@ void modes_draw(hud_fb_t *fb, int screen);
 uint32_t modes_pair_start(uint16_t *code);   /* the request's id (0: busy or too soon) and its code */
 int modes_pair_state(uint32_t id);           /* 0 waiting, 1 allowed, 2 refused / expired / unknown */
 void modes_pair_done(uint32_t id);           /* the browser has the token: forget the request */
+
+/* A notification card over the middle screen: `seconds` (0 = until a button), a buzzer pattern (-1 =
+ * none; not in a quiet night), the LEDs pulsing in `color` (0xRRGGBB). Any task may call it. */
+void modes_notify(const char *title, const char *text, int seconds, int sound, uint32_t color);
 
 const char *modes_name(void);             /* the current mode, e.g. "TUNER" ("DASH" for the dashboard) */
 float modes_tempo_bpm(void);              /* the tempo finder's reading, NAN if none */

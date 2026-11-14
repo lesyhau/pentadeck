@@ -34,6 +34,111 @@ static inline float clampf01(float v)
     return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
+/* ------------------------------------------------------------------ colour */
+
+static const hud_ramp_t TEAL = { 0xA6D6E7u, 0x78BED9u, 0x42A7CDu, 0x2A8CB2u, 0x206F8Du, 0x164E63u, 0x143E4Eu,
+                                 0x3C7891u, 0x284654u };
+hud_ramp_t hud_ramp = { 0xA6D6E7u, 0x78BED9u, 0x42A7CDu, 0x2A8CB2u, 0x206F8Du, 0x164E63u, 0x143E4Eu,
+                        0x3C7891u, 0x284654u };
+static uint32_t s_accent = HUD_TEAL;
+static float s_dh, s_ks = 1;               /* the accent's hue shift (turns) and saturation factor from teal */
+
+static void rgb_hsl(uint32_t c, float *h, float *s, float *l)
+{
+    float r = (c >> 16 & 0xFF) / 255.0f, g = (c >> 8 & 0xFF) / 255.0f, b = (c & 0xFF) / 255.0f;
+    float mx = fmaxf(r, fmaxf(g, b)), mn = fminf(r, fminf(g, b)), d = mx - mn;
+    *l = (mx + mn) / 2;
+    if (d < 1e-6f) { *h = 0; *s = 0; return; }
+    *s = d / (1 - fabsf(2 * *l - 1));
+    float hh = mx == r ? fmodf((g - b) / d + 6, 6) : mx == g ? (b - r) / d + 2 : (r - g) / d + 4;
+    *h = hh / 6;
+}
+
+static uint32_t hsl_rgb(float h, float s, float l)
+{
+    h -= floorf(h);
+    s = clampf01(s);
+    float c = (1 - fabsf(2 * l - 1)) * s, hp = h * 6, x = c * (1 - fabsf(fmodf(hp, 2) - 1)), m = l - c / 2;
+    float r = 0, g = 0, b = 0;
+    switch ((int)hp % 6) {
+    case 0: r = c; g = x; break;
+    case 1: r = x; g = c; break;
+    case 2: g = c; b = x; break;
+    case 3: g = x; b = c; break;
+    case 4: r = x; b = c; break;
+    default: r = c; b = x; break;
+    }
+    uint32_t R = (uint32_t)lroundf(clampf01(r + m) * 255), G = (uint32_t)lroundf(clampf01(g + m) * 255),
+             B = (uint32_t)lroundf(clampf01(b + m) * 255);
+    return R << 16 | G << 8 | B;
+}
+
+/* a teal colour in the accent's hue */
+static uint32_t to_accent(uint32_t c)
+{
+    float h, s, l;
+    rgb_hsl(c, &h, &s, &l);
+    return hsl_rgb(h + s_dh, s * s_ks, l);
+}
+
+void hud_set_accent(uint32_t rgb)
+{
+    rgb &= 0xFFFFFFu;
+    if (rgb == s_accent) return;
+    s_accent = rgb;
+    if (rgb == HUD_TEAL) {
+        s_dh = 0;
+        s_ks = 1;
+        hud_ramp = TEAL;
+        return;
+    }
+    float ha, sa, la, ht, st, lt;
+    rgb_hsl(rgb, &ha, &sa, &la);
+    rgb_hsl(HUD_TEAL, &ht, &st, &lt);
+    s_dh = ha - ht;
+    s_ks = sa / st;
+    const uint32_t *src = &TEAL.p300;
+    uint32_t out[sizeof TEAL / sizeof(uint32_t)];
+    for (size_t i = 0; i < sizeof out / sizeof out[0]; i++) out[i] = to_accent(src[i]);
+    memcpy(&hud_ramp, out, sizeof hud_ramp);
+}
+
+uint32_t hud_accent(void) { return s_accent; }
+
+hud_color_t hud_mix(hud_color_t a, hud_color_t b, float t)
+{
+    t = clampf01(t);
+    uint32_t k = (uint32_t)(t * 256), n = 256 - k;
+    uint32_t r = ((a >> 16 & 0xFF) * n + (b >> 16 & 0xFF) * k) >> 8;
+    uint32_t g = ((a >> 8 & 0xFF) * n + (b >> 8 & 0xFF) * k) >> 8;
+    uint32_t bl = ((a & 0xFF) * n + (b & 0xFF) * k) >> 8;
+    return r << 16 | g << 8 | bl;
+}
+
+hud_color_t hud_scale(hud_color_t c, float k)
+{
+    return hud_mix(0, c, k);
+}
+
+hud_color_t hud_hsv(float h, float s, float v)
+{
+    h -= floorf(h);
+    s = clampf01(s);
+    v = clampf01(v);
+    float hp = h * 6, f = hp - floorf(hp);
+    float p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+    float r, g, b;
+    switch ((int)hp % 6) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    default: r = v; g = p; b = q; break;
+    }
+    return (uint32_t)(r * 255) << 16 | (uint32_t)(g * 255) << 8 | (uint32_t)(b * 255);
+}
+
 hud_color_t level_color(float frac)
 {
     return frac >= 0.9f ? C_DANGER : frac >= 0.75f ? C_WARNING : C_ACCENT;
@@ -112,6 +217,75 @@ void hud_image(hud_fb_t *fb, const hud_image_t *img, int x, int y)
         int i0 = x < 0 ? -x : 0, i1 = x + img->w > HUD_W ? HUD_W - x : img->w;
         if (i1 <= i0) continue;
         memcpy(&fb[yy * HUD_W + x + i0], img->px + (j * img->w + i0) * 2, (size_t)(i1 - i0) * 2);
+    }
+}
+
+void hud_image_accent(hud_fb_t *fb, const hud_image_t *img, int x, int y)
+{
+    if (s_accent == HUD_TEAL) { hud_image(fb, img, x, y); return; }
+    /* the images use a handful of colours: remember the last few conversions */
+    static uint16_t memo_in[8], memo_out[8];
+    static uint32_t memo_for = 0xFFFFFFFFu;
+    static int memo_n;
+    if (memo_for != s_accent) { memo_for = s_accent; memo_n = 0; }
+    for (int j = 0; j < img->h; j++) {
+        int yy = y + j;
+        if (yy < 0 || yy >= HUD_H) continue;
+        for (int i = 0; i < img->w; i++) {
+            int xx = x + i;
+            if (xx < 0 || xx >= HUD_W) continue;
+            const uint8_t *p = img->px + (j * img->w + i) * 2;
+            uint16_t be = (uint16_t)(p[0] | p[1] << 8);       /* as stored: big-endian */
+            uint16_t v = (uint16_t)(p[0] << 8 | p[1]);
+            uint32_t r = (v >> 11) & 0x1F, g = (v >> 5) & 0x3F, b = v & 0x1F;
+            r = (r << 3) | (r >> 2);
+            g = (g << 2) | (g >> 4);
+            b = (b << 3) | (b >> 2);
+            uint32_t mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+            if (mx - mn < 12) { fb[yy * HUD_W + xx] = be; continue; }   /* black, greys, white */
+            int k;
+            for (k = 0; k < memo_n && memo_in[k] != be; k++) {}
+            if (k == memo_n) {
+                if (k == 8) k = memo_n = 0;                    /* full: start over */
+                memo_in[k] = be;
+                memo_out[k] = pack_be(to_accent(r << 16 | g << 8 | b));
+                memo_n++;
+            }
+            fb[yy * HUD_W + xx] = memo_out[k];
+        }
+    }
+}
+
+void hud_ring(hud_fb_t *fb, float cx, float cy, float r, float width, hud_color_t c)
+{
+    float hw = width / 2, ro = r + hw + 1, ri = r - hw - 1;
+    if (r <= 0 || cx + ro < 0 || cx - ro > HUD_W || cy + ro < 0 || cy - ro > HUD_H) return;
+    if (ri > 0) {                                     /* the whole screen inside the hole: nothing to draw */
+        float fx = fmaxf(fabsf(cx), fabsf(cx - HUD_W)), fy = fmaxf(fabsf(cy), fabsf(cy - HUD_H));
+        if (fx * fx + fy * fy < ri * ri) return;
+    }
+    int y0 = (int)floorf(cy - ro), y1 = (int)ceilf(cy + ro);
+    if (y0 < 0) y0 = 0;
+    if (y1 > HUD_H) y1 = HUD_H;
+    for (int py = y0; py < y1; py++) {
+        float dy = py + 0.5f - cy;
+        if (fabsf(dy) > ro) continue;
+        float xo = sqrtf(ro * ro - dy * dy);
+        float xi = ri > 0 && fabsf(dy) < ri ? sqrtf(ri * ri - dy * dy) : -1;
+        for (int side = 0; side < 2; side++) {
+            float a, b;
+            if (xi < 0) { if (side) break; a = cx - xo; b = cx + xo; }
+            else if (side == 0) { a = cx - xo; b = cx - xi; }
+            else { a = cx + xi; b = cx + xo; }
+            int px0 = (int)floorf(a), px1 = (int)ceilf(b);
+            if (px0 < 0) px0 = 0;
+            if (px1 > HUD_W) px1 = HUD_W;
+            for (int px = px0; px < px1; px++) {
+                float dx = px + 0.5f - cx;
+                float cov = clampf01(hw + 0.5f - fabsf(sqrtf(dx * dx + dy * dy) - r));
+                if (cov > 0.004f) blend(&fb[py * HUD_W + px], c, (uint32_t)(cov * 255 + 0.5f));
+            }
+        }
     }
 }
 

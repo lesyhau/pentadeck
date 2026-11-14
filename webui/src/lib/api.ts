@@ -36,6 +36,8 @@ export interface DeviceStatus {
   mode?: string
   /** Low power when nobody is about (firmware 0.16+): the state, what last showed someone, how long ago. */
   power?: { state: 'full' | 'idle'; last_sign: string; quiet_s: number }
+  /** The day's sound dose (NIOSH: 85 dBA for 8 hours is 100 %) and its Leq (firmware 0.21+). */
+  hearing?: { dose_pct: number | null; leq_dba: number | null }
 }
 
 export interface DeviceSettings {
@@ -79,20 +81,47 @@ export interface DeviceSettings {
   idle_brightness?: number
   /** PCs may stream the mic over Wi-Fi (firmware 0.17+). */
   mic_stream?: boolean
-  /** The AUDIO screen: 'eq' (16-band equaliser) or 'vu' (a needle VU meter) (firmware 0.18+). */
+  /** The AUDIO screen: 'eq' (16-band equaliser), 'vu' (a needle VU meter) (firmware 0.18+), or one of the
+   *  visual effects (firmware 0.21+): see audio_views. */
   audio_view?: string
+  /** The screens' and this page's accent, '#rrggbb' (firmware 0.21+). */
+  accent?: string
+  /** The visual effects' colours: 'accent', 'rainbow' or 'fire' (firmware 0.21+). */
+  viz_palette?: string
+  /** What a double clap does: one of clap_actions, 'off' by default (firmware 0.21+). */
+  clap?: string
+  /** A warning on the screens when the day's sound dose passes 100 % (firmware 0.21+). */
+  noise_alert?: boolean
   /** The World mode's clocks on screens 2, 3, 4: 0 = home, 1 and 2 = world_names[0] and [1] (firmware 0.19+). */
   world_order?: number[]
   led_modes?: string[]
   led_effects?: string[]
   panels?: string[]
+  audio_views?: string[]
+  viz_palettes?: string[]
+  clap_actions?: string[]
 }
+
+/** The lists GET /api/settings sends along, which POST does not take back. */
+export const SETTINGS_LISTS = ['led_modes', 'led_effects', 'panels', 'audio_views', 'viz_palettes', 'clap_actions'] as const
 
 export const PANEL_NAMES: Record<string, string> = { lab: 'Home lab', cpu: 'CPU', nav: 'Clock', gpu: 'GPU', audio: 'Audio', off: 'Off' }
 export const SLOT_NAMES = ['Left', 'Second', 'Middle', 'Fourth', 'Right']
+export const AUDIO_VIEW_NAMES: Record<string, string> = {
+  eq: 'Equaliser', vu: 'VU meter', mirror: 'Mirror', scope: 'Oscilloscope', waterfall: 'Waterfall', ripple: 'Ripple', radial: 'Radial',
+}
+export const AUDIO_VIEW_HINTS: Record<string, string> = {
+  eq: '16 bars, from bass to treble.',
+  vu: 'A needle meter, like on a stereo.',
+  mirror: 'The spectrum mirrored up and down, bass in the middle.',
+  scope: 'The sound wave itself, like an oscilloscope.',
+  waterfall: 'The spectrum over the last few seconds, bass at the bottom.',
+  ripple: 'Rings sent out by the beat.',
+  radial: 'The spectrum around a circle.',
+}
 export const LED_EFFECT_NAMES: Record<string, string> = {
   off: 'Off', glow: 'Glow', breathe: 'Breathe', wave: 'Wave', comet: 'Comet', sparkle: 'Sparkle',
-  pulse: 'Pulse', fire: 'Fire', rainbow: 'Rainbow', cpu: 'CPU load', gpu: 'GPU load', lab: 'Home lab', music: 'Music',
+  pulse: 'Pulse', fire: 'Fire', rainbow: 'Rainbow', spectrum: 'Spectrum', cpu: 'CPU load', gpu: 'GPU load', lab: 'Home lab', music: 'Music',
 }
 export const LED_EFFECT_HINTS: Record<string, string> = {
   off: 'Dark.',
@@ -104,13 +133,17 @@ export const LED_EFFECT_HINTS: Record<string, string> = {
   pulse: 'Brighter as the room gets louder.',
   fire: 'Flickering embers.',
   rainbow: 'Cycling colours.',
+  spectrum: 'The music along the strip: bass at one end, treble at the other.',
   cpu: 'Fills with CPU load. Orange, then red, when busy or hot.',
   gpu: 'Fills with GPU load. Orange, then red, when busy or hot.',
   lab: 'Your colour when all is well, red when something is down.',
   music: 'A loudness meter. Orange, then red, when loud.',
 }
 /** Effects that bring their own colours, so the colour picker has nothing to do. */
-export const LED_OWN_COLOURS = ['off', 'fire', 'rainbow']
+export const LED_OWN_COLOURS = ['off', 'fire', 'rainbow', 'spectrum']
+export const CLAP_NAMES: Record<string, string> = {
+  off: 'Nothing', leds: 'LEDs on or off', light: 'Screens on or off', mode: 'Next mode', dash: 'Back to the dashboard',
+}
 export const LED_DEFAULT_COLOUR = '#2a8cb2'
 /** The old single modes, as effects for the left strip, the back light and the right strip. */
 export const LED_PRESETS: Record<string, [string, string, string]> = {
@@ -290,3 +323,48 @@ export function bytes(n: number): string {
   if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
   return `${Math.round(n / 1024)} KB`
 }
+
+// -- Sound: the live spectrum, the mic stream, learned sounds -----------------------------------------
+
+/** GET /api/spectrum: the screens' 16 bands, bass first, 0..100, and the level. */
+export interface Spectrum { bands: number[]; dba: number | null }
+
+/** The mic stream (port 8081): an endless 16-bit mono WAV at 32 kHz. The token goes in the URL. */
+export const streamUrl = (token: string) => `http://${location.hostname}:8081/?token=${encodeURIComponent(token)}`
+
+export interface SoundSlot { used: boolean; on: boolean; name: string }
+export interface SoundsState {
+  slots: SoundSlot[]
+  /** The slot being learned, or -1. */
+  learning: number
+  left_ms: number
+  /** How the last learning ended. */
+  result: 'none' | 'learned' | 'nothing'
+}
+export const soundsPost = (token: string, slot: number, query: string) => post(`/api/sounds?slot=${slot}&${query}`, token)
+
+// -- The clock image ---------------------------------------------------------------------------------
+
+/** The image in place of the logo on the clock screen: EMBLEM_PX square, big-endian RGB565. */
+export const EMBLEM_PX = 36
+
+export async function postBinary(url: string, token: string, body: Uint8Array<ArrayBuffer>): Promise<WriteResult> {
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'X-Token': token, 'Content-Type': 'application/octet-stream' }, body })
+    return { ok: r.ok, status: r.status, text: (await r.text()).trim() }
+  } catch {
+    return { ok: false, status: 0, text: 'The device is not answering.' }
+  }
+}
+
+// -- History -----------------------------------------------------------------------------------------
+
+export type HistoryKey = 'pc_cpu' | 'pc_cpu_temp' | 'pc_gpu' | 'pc_gpu_temp' | 'lab_cpu' | 'lab_cpu_temp' | 'dba'
+/** GET /api/history: a value a minute for up to 24 hours, oldest first; null where nothing was known.
+ *  `last` is when the newest minute ended (Unix seconds, 0 before the clock was set). */
+export interface History { step_s: number; count: number; last: number; series: Record<HistoryKey, (number | null)[]> }
+
+// -- Notifications -----------------------------------------------------------------------------------
+
+export interface Notification { title: string; text: string; seconds: number; sound: string; color?: string }
+export const NOTIFY_SOUNDS = ['chime', 'none', 'up', 'down', 'warn', 'test', 'alarm']

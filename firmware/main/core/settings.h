@@ -49,7 +49,8 @@ typedef struct {
     /* v9 */
     bool mic_stream;                 /* PCs may stream the mic (stream.c); the device's own uses don't change */
     /* v10 */
-    char audio_view[4];              /* the AUDIO screen: "eq" (16-band equaliser) or "vu" (a needle VU meter) */
+    char audio_view_v12[4];          /* until v12 the AUDIO screen's view ("eq" or "vu"); v13 reads it once into
+                                        audio_view, then leaves it */
     /* v11 */
     char led_zone[3][8];             /* each LED zone's effect (LED_ZONE_*), one of settings.c's LED_EFFECTS */
     char world_order[4];             /* the World mode's clocks on screens 2, 3, 4: a digit each, 0 = home,
@@ -57,7 +58,23 @@ typedef struct {
     /* v12 */
     uint32_t led_color[3];           /* each LED zone's colour, 0xRRGGBB: what glow, breathe, wave, comet, sparkle
                                         and pulse show, and the "all is well" colour of the meters */
+    /* v13 */
+    uint32_t accent;                 /* the screens' (and the web page's) accent, 0xRRGGBB; teal by default */
+    char audio_view[12];             /* the AUDIO screen: one of settings.c's AUDIO_VIEWS (eq, vu, or a visual effect) */
+    uint8_t viz_palette;             /* the visual effects' colours: VIZ_PAL_* */
+    uint8_t viz_effect;              /* the VISUAL mode's effect, as it was left */
+    /* v14 */
+    char clap[8];                    /* what a double clap does: one of settings.c's CLAP_ACTIONS */
+    bool noise_alert;                /* warn when the day's sound dose reaches 100 % (core/listen.c) */
 } tg_settings_t;
+
+enum { VIZ_PAL_ACCENT, VIZ_PAL_RAINBOW, VIZ_PAL_FIRE, VIZ_PAL_COUNT };
+
+/* The accent presets (the setup menu steps through them; the web page offers them and any colour) */
+typedef struct { const char *name; uint32_t rgb; } tg_accent_t;
+extern const tg_accent_t TG_ACCENTS[];
+extern const int TG_ACCENT_N;
+const char *settings_accent_name(uint32_t rgb);                   /* "TEAL", ..., or "CUSTOM" */
 
 enum { LED_ZONE_LEFT, LED_ZONE_BACK, LED_ZONE_RIGHT };
 

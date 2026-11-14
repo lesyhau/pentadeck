@@ -1,9 +1,20 @@
 /* PENTADECK THEME
    Tokens are RGB channels ("r g b") so Tailwind's opacity modifiers work on them (bg-accent/15).
    Neutral near-black canvas, cards one step lighter, and teal only for what acts or marks.
-   The teal ramp (also the logo's): 900 #164E63, 800 #1B5E78, 700 #206F8D, 600 #2A8CB2,
-   500 #42A7CD, 400 #78BED9, 300 #A8D5E6. Load colours are the device's: orange #FB923C from
-   60 %, red #F87171 from 80 %. */
+   The accent ramp (also the logo's), --pd-a300 .. --pd-a900, teal by default: 900 #164E63,
+   800 #1B5E78, 700 #206F8D, 600 #2A8CB2, 500 #42A7CD, 400 #78BED9, 300 #A8D5E6. The device's accent
+   setting turns it to another hue (lib/accent.ts sets the variables on <html>). Load colours are the
+   device's: orange #FB923C from 60 %, red #F87171 from 80 %. */
+
+:root {
+  --pd-a300: 168 213 230;
+  --pd-a400: 120 190 217;
+  --pd-a500: 66 167 205;
+  --pd-a600: 42 140 178;
+  --pd-a700: 32 111 141;
+  --pd-a800: 27 94 120;
+  --pd-a900: 22 78 99;
+}
 
 :root,
 :root[data-theme='dark'] {
@@ -17,17 +28,20 @@
   --pd-ink: 242 243 244;
   --pd-ink-2: 184 186 190;        /* #B8BABE, the device's caption grey */
   --pd-ink-3: 122 125 131;        /* placeholders, empty values */
-  --pd-accent: 66 167 205;        /* 500: fills that act */
-  --pd-accent-hover: 120 190 217; /* 400 */
-  --pd-on-accent: 5 18 24;        /* text on an accent fill */
-  --pd-accent-ink: 120 190 217;   /* 400: teal text */
-  --pd-hud-ink: 66 167 205;       /* 500: section headings */
-  --pd-hud-rule: 22 78 99;        /* 900: the rule after them */
-  --pd-bracket: 32 111 141;       /* 700: stat-tile corners */
+  --pd-accent: var(--pd-a500);         /* fills that act */
+  --pd-accent-hover: var(--pd-a400);
+  --pd-on-accent: 5 10 12;             /* text on an accent fill */
+  --pd-accent-ink: var(--pd-a400);     /* accent text */
+  --pd-hud-ink: var(--pd-a500);        /* section headings */
+  --pd-hud-rule: var(--pd-a900);       /* the rule after them */
+  --pd-bracket: var(--pd-a700);        /* stat-tile corners */
   --pd-warn: 251 146 60;          /* #FB923C */
   --pd-warn-ink: 251 146 60;
   --pd-danger: 248 113 113;       /* #F87171 */
   --pd-danger-ink: 248 113 113;
+  --pd-viz-1: 57 135 229;         /* history charts: PC CPU #3987E5, PC GPU #D95926, home lab #199E70 */
+  --pd-viz-2: 217 89 38;          /* (validated together, dark and light, colour-blind safe) */
+  --pd-viz-3: 25 158 112;
   --pd-shadow-card: 0 0 #0000;
   --pd-shadow-pop: 0 16px 40px -12px rgb(0 0 0 / 0.7), 0 2px 6px rgb(0 0 0 / 0.4);
   --pd-header: 56px;
@@ -46,17 +60,20 @@
   --pd-ink: 17 18 20;
   --pd-ink-2: 83 87 94;
   --pd-ink-3: 141 145 151;
-  --pd-accent: 32 111 141;        /* 700, white text on it passes AA */
-  --pd-accent-hover: 27 94 120;   /* 800 */
+  --pd-accent: var(--pd-a700);         /* white text on it passes AA */
+  --pd-accent-hover: var(--pd-a800);
   --pd-on-accent: 255 255 255;
-  --pd-accent-ink: 32 111 141;    /* 700 */
-  --pd-hud-ink: 32 111 141;       /* 700 */
-  --pd-hud-rule: 168 213 230;     /* 300 */
-  --pd-bracket: 66 167 205;       /* 500 */
+  --pd-accent-ink: var(--pd-a700);
+  --pd-hud-ink: var(--pd-a700);
+  --pd-hud-rule: var(--pd-a300);
+  --pd-bracket: var(--pd-a500);
   --pd-warn: 251 146 60;
   --pd-warn-ink: 194 65 12;       /* darker orange for text on white */
   --pd-danger: 239 68 68;
   --pd-danger-ink: 185 28 28;
+  --pd-viz-1: 42 120 214;         /* #2A78D6 */
+  --pd-viz-2: 235 104 52;         /* #EB6834 */
+  --pd-viz-3: 27 175 122;         /* #1BAF7A: under 3:1 on white, so the charts have a table too */
   --pd-shadow-card: 0 1px 2px rgb(16 24 40 / 0.05);
   --pd-shadow-pop: 0 16px 40px -12px rgb(16 24 40 / 0.25), 0 2px 6px rgb(16 24 40 / 0.08);
 }

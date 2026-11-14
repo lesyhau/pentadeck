@@ -14,6 +14,7 @@
 #include "drivers/leds.h"
 #include "drivers/mic.h"
 #include "net/netdata.h"
+#include "ui/viz.h"
 
 #define TEAL    0x2A8CB2u          /* brand teal 600, the HUD colour */
 #define TEAL_LO 0x0A2833u          /* the unlit part of a meter */
@@ -292,14 +293,54 @@ static void fx_music(int z, uint32_t c)
     for (int i = 0; i < n; i++) zone_set(z, i, meter_led(i, n, s_level, s_peak, c));
 }
 
+/* The spectrum's 16 bands, fast up and slow down, for the spectrum effect */
+static float s_lband[MIC_BANDS];
+
+static void spectrum_update(const mic_snapshot_t *m)
+{
+    for (int b = 0; b < MIC_BANDS; b++) {
+        float f = clamp01((m->bands[b] - MIC_BAND_FLOOR_DB) / (MIC_BAND_TOP_DB - MIC_BAND_FLOOR_DB));
+        s_lband[b] = f > s_lband[b] ? f : fmaxf(0, s_lband[b] - 0.035f);
+    }
+}
+
+static float lband_at(float u)                    /* 0 = bass .. 1 = treble, between the bands */
+{
+    float x = clamp01(u) * (MIC_BANDS - 1);
+    int i = (int)x;
+    if (i >= MIC_BANDS - 1) return s_lband[MIC_BANDS - 1];
+    return s_lband[i] + (s_lband[i + 1] - s_lband[i]) * (x - i);
+}
+
+static uint32_t heat_col(float v)
+{
+    return v < 0.5f ? mix(0x300000u, 0xFF2000u, v * 2) : mix(0xFF2000u, 0xFFC040u, (v - 0.5f) * 2);
+}
+
+static void fx_spectrum(int z, uint32_t c, int palette, uint32_t ms)
+{
+    int n = zone_steps(z);
+    uint32_t beat = viz_beat_ms();
+    float flash = beat && ms - beat < 600 ? expf(-(float)(ms - beat) / 110.0f) : 0;
+    for (int i = 0; i < n; i++) {
+        float u = n > 1 ? (float)i / (n - 1) : 0;
+        /* stretch the bands' 0..1 so a quiet room glows a little and loud music fills */
+        float v = clamp01((lband_at(u) - 0.25f) / 0.6f);
+        uint32_t col = palette == VIZ_PAL_RAINBOW ? hue(u * 0.8f) : palette == VIZ_PAL_FIRE ? heat_col(v) : c;
+        uint32_t px = scale(col, 0.04f + 0.96f * v * v);
+        zone_set(z, i, mix(px, 0xFFFFFFu, flash * 0.45f * (1 - u * 0.5f)));
+    }
+}
+
 static bool hears(const char *fx)                 /* the effect follows the mic */
 {
-    return strcmp(fx, "music") == 0 || strcmp(fx, "pulse") == 0;
+    return strcmp(fx, "music") == 0 || strcmp(fx, "pulse") == 0 || strcmp(fx, "spectrum") == 0;
 }
 
 /* Every zone goes through here, the back light the same as the sides: one colour is the same bytes
  * on every LED of the chain. */
-static void zone_effect(int z, const char *fx, uint32_t c, const host_stats_t *pc, const host_stats_t *lab, uint32_t ms)
+static void zone_effect(int z, const char *fx, uint32_t c, const host_stats_t *pc, const host_stats_t *lab, uint32_t ms,
+                        int palette)
 {
     if (strcmp(fx, "glow") == 0) {
         zone_fill(z, c);
@@ -328,6 +369,8 @@ static void zone_effect(int z, const char *fx, uint32_t c, const host_stats_t *p
         fx_lab(z, c, lab, ms);
     } else if (strcmp(fx, "music") == 0) {
         fx_music(z, c);
+    } else if (strcmp(fx, "spectrum") == 0) {
+        fx_spectrum(z, c, palette, ms);
     }                                             /* "off": left dark */
 }
 
@@ -403,14 +446,19 @@ static void ledfx_task(void *arg)
         } else if (scene == SCENE_ALARM) {
             uint32_t c = (ms / 250) % 2 ? ORANGE : 0;
             for (int i = 0; i < LED_COUNT; i++) s_px[i] = c;
+        } else if (scene == SCENE_NOTIFY) {             /* a pulse a second in the given colour */
+            float k = 0.5f - 0.5f * cosf(ms * (6.2831853f / 1000.0f));
+            uint32_t c = scale((uint32_t)s_sb, 0.1f + 0.9f * k * k);
+            for (int i = 0; i < LED_COUNT; i++) s_px[i] = c;
         } else {                                          /* each zone its own effect */
             bool music = false;
             for (int z = 0; z < 3; z++) music |= hears(s.led_zone[z]);
             if (music) {
                 mic_get(&m);
                 music_update(&m);
+                spectrum_update(&m);
             }
-            for (int z = 0; z < 3; z++) zone_effect(z, s.led_zone[z], s.led_color[z], &pc, &lab, ms);
+            for (int z = 0; z < 3; z++) zone_effect(z, s.led_zone[z], s.led_color[z], &pc, &lab, ms, s.viz_palette);
         }
         leds_show(s_px, LED_COUNT, (uint8_t)(bright * 255 / 100));
     }

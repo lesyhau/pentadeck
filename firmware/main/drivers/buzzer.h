@@ -1,6 +1,8 @@
 #pragma once
 /* The piezo buzzer on GPIO9: short sound patterns (notes and pitch glides) played by a background task.
  * The piezo is loudest around 2.5..4 kHz, so the sounds live up there. */
+#include <stdbool.h>
+
 #include "esp_err.h"
 
 typedef enum {
@@ -24,3 +26,5 @@ esp_err_t buzzer_start(void);
 void buzzer_play(buzzer_pattern_t p, int volume);
 /* One plain tone (tests, e.g. the tuner), 50..8000 Hz, up to 5 s. */
 void buzzer_tone(int hz, int ms, int volume);
+/* Sounding now, or stopped less than 150 ms ago (what the mic hears of it, echoes included). */
+bool buzzer_busy(void);

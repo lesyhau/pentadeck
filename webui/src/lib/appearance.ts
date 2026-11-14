@@ -5,6 +5,8 @@
  * No DOM access at module level: vite.config.ts imports this file in Node to inline the script.
  */
 
+import { ACCENT_RAMP_KEY } from './accent'
+
 export type Appearance = 'system' | 'light' | 'dark'
 export type Theme = 'light' | 'dark'
 
@@ -16,14 +18,17 @@ export const THEME_COLORS: Record<Theme, string> = { dark: '#0A0B0C', light: '#F
 
 export const isAppearance = (v: unknown): v is Appearance => v === 'system' || v === 'light' || v === 'dark'
 
-/** Inlined at the end of <head> by vite.config.ts; mirrors applyTheme() in ui/useAppearance.ts. */
+/** Inlined at the end of <head> by vite.config.ts; mirrors applyTheme() in ui/useAppearance.ts, and
+ * stamps the accent ramp remembered from the last visit (lib/accent.ts). */
 export function prePaintScript(): string {
   const key = JSON.stringify(APPEARANCE_KEY)
   const fallback = JSON.stringify(DEFAULT_APPEARANCE)
   const colors = JSON.stringify(THEME_COLORS)
+  const ramp = JSON.stringify(ACCENT_RAMP_KEY)
   return [
-    '(function(){var p;',
-    `try{p=localStorage.getItem(${key})}catch(e){}`,
+    '(function(){var p,a;',
+    `try{p=localStorage.getItem(${key});a=localStorage.getItem(${ramp})}catch(e){}`,
+    'if(a&&/^(--pd-a\\d00:\\d+ \\d+ \\d+;)+$/.test(a))document.documentElement.style.cssText+=a;',
     `if(p!=="system"&&p!=="light"&&p!=="dark")p=${fallback};`,
     'var t=p==="system"?(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):p;',
     'var r=document.documentElement;r.setAttribute("data-theme",t);r.style.colorScheme=t;',

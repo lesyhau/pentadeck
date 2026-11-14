@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react'
 import { HudHeading, Meter, Notice, PageTitle, Reveal, StatGrid, StatTile, StatusDot, loadTone, type MeterTone } from '../ui'
 import { bytes, micLevel, round, signalWords, uptime, type DeviceStatus, type SourceStatus } from '../lib/api'
+import { SoundSection } from '../components/Sound'
+import { HistorySection } from '../components/History'
+import type { Send } from '../components/Pairing'
 
 /**
  * THE LIVE OVERVIEW: the two machines the device watches, and the device itself. Each group is a
@@ -54,7 +57,7 @@ function HostGroup({ title, src, loading, children }: { title: string; src?: Sou
   )
 }
 
-export function Overview({ status, online }: { status: DeviceStatus | null; online: boolean | null }) {
+export function Overview({ status, online, send }: { status: DeviceStatus | null; online: boolean | null; send: Send }) {
   const loading = !status
   const pc = status?.sources[0]
   const lab = status?.sources[1]
@@ -94,6 +97,10 @@ export function Overview({ status, online }: { status: DeviceStatus | null; onli
           <StatTile label="Reported" value={lab ? reportAge(lab.age_ms) : undefined} text loading={loading} />
         </HostGroup>
       </div>
+
+      <SoundSection status={status} send={send} />
+
+      <HistorySection />
 
       <section aria-label="Device">
         <HudHeading

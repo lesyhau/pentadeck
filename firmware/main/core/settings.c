@@ -19,9 +19,10 @@
 static const char *TAG = "settings";
 #define NS      "tg"
 #define KEY     "cfg"
-#define VERSION 12                  /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
+#define VERSION 14                  /* 2 the buzzer, 3 the LEDs, 4 the key beep, 5 the alarm and chime, 6 the world clock,
                                        7 the modes' values, 8 low power, 9 the mic stream switch, 10 the AUDIO view,
-                                       11 an effect per LED zone and the world clock's order, 12 a colour per LED zone */
+                                       11 an effect per LED zone and the world clock's order, 12 a colour per LED zone,
+                                       13 the accent, the visual effects, 14 the clap and the sound dose */
 
 typedef struct {
     uint32_t version;
@@ -35,7 +36,9 @@ static volatile uint32_t s_gen;
 static const char *PANELS[] = { "lab", "cpu", "nav", "gpu", "audio", "off" };
 static const char *LED_MODES[] = { "off", "glow", "status", "music" };          /* presets over the zones */
 static const char *LED_EFFECTS[] = { "off", "glow", "breathe", "wave", "comet", "sparkle", "pulse", "fire", "rainbow",
-                                     "cpu", "gpu", "lab", "music" };
+                                     "cpu", "gpu", "lab", "music", "spectrum" };
+/* a double clap: nothing, the LEDs off / on, full brightness for 10 s, the next mode, the dashboard */
+static const char *CLAP_ACTIONS[] = { "off", "leds", "light", "mode", "dash" };
 static const char *LED_ZONE_KEYS[3] = { "led_left", "led_back", "led_right" };
 static const char *LED_COLOR_KEYS[3] = { "led_left_color", "led_back_color", "led_right_color" };
 #define LED_TEAL 0x2A8CB2u                                                     /* the HUD's teal */
@@ -83,7 +86,31 @@ static bool valid_world_order(const char *o)
 {
     return strlen(o) == 3 && strchr(o, '0') && strchr(o, '1') && strchr(o, '2');
 }
-static const char *AUDIO_VIEWS[] = { "eq", "vu" };
+static const char *AUDIO_VIEWS[] = { "eq", "vu", "mirror", "scope", "waterfall", "ripple", "radial" };
+static const char *VIZ_PALETTES[VIZ_PAL_COUNT] = { "accent", "rainbow", "fire" };
+
+/* the teal ramp's saturation and lightness (its 600), in other hues */
+const tg_accent_t TG_ACCENTS[] = {
+    { "TEAL", 0x2A8CB2u }, { "BLUE", 0x2A57B2u }, { "VIOLET", 0x622AB2u }, { "PINK", 0xB22A84u }, { "RED", 0xB22A2Au },
+    { "ORANGE", 0xB2622Au }, { "AMBER", 0xB2892Au }, { "GREEN", 0x2AB262u }, { "MONO", 0x8C8C8Cu },
+};
+const int TG_ACCENT_N = COUNT(TG_ACCENTS);
+
+const char *settings_accent_name(uint32_t rgb)
+{
+    for (int i = 0; i < TG_ACCENT_N; i++) if (TG_ACCENTS[i].rgb == rgb) return TG_ACCENTS[i].name;
+    return "CUSTOM";
+}
+
+static uint32_t parse_hex(const cJSON *v, bool *given)      /* "#RRGGBB" (or "RRGGBB"); bad: fails validation */
+{
+    *given = cJSON_IsString(v) && v->valuestring;
+    if (!*given) return 0;
+    const char *h = v->valuestring + (v->valuestring[0] == '#');
+    char *end;
+    unsigned long c = strtoul(h, &end, 16);
+    return strlen(h) == 6 && *end == 0 ? (uint32_t)c : 0xFFFFFFFFu;
+}
 
 static void defaults(tg_settings_t *s)
 {
@@ -125,9 +152,15 @@ static void defaults(tg_settings_t *s)
     s->idle_min = 10;
     s->idle_brightness = 10;
     s->mic_stream = true;
-    strcpy(s->audio_view, "eq");
+    strcpy(s->audio_view_v12, "eq");
     strcpy(s->world_order, "102");     /* home in the middle */
     for (int z = 0; z < 3; z++) s->led_color[z] = LED_TEAL;
+    s->accent = LED_TEAL;
+    strcpy(s->audio_view, "eq");
+    s->viz_palette = VIZ_PAL_ACCENT;
+    s->viz_effect = 0;
+    strcpy(s->clap, "off");
+    s->noise_alert = true;
 }
 
 static bool valid_panel(const char *p)
@@ -168,7 +201,10 @@ static esp_err_t validate(const tg_settings_t *s, char *err, int err_len)
     }
     if (!valid_world_order(s->world_order)) FAIL("world_order must hold 0, 1 and 2 once each");
     if (s->led_brightness > 100) FAIL("LED brightness is 0..100");
-    if (!in_list(s->audio_view, AUDIO_VIEWS, COUNT(AUDIO_VIEWS))) FAIL("unknown audio view '%s' (eq or vu)", s->audio_view);
+    if (!in_list(s->audio_view, AUDIO_VIEWS, COUNT(AUDIO_VIEWS))) FAIL("unknown audio view '%s'", s->audio_view);
+    if (s->accent > 0xFFFFFF) FAIL("accent must be #RRGGBB");
+    if (s->viz_palette >= VIZ_PAL_COUNT) FAIL("viz_palette is accent, rainbow or fire");
+    if (!in_list(s->clap, CLAP_ACTIONS, COUNT(CLAP_ACTIONS))) FAIL("clap is off, leds, light, mode or dash");
     if (!valid_hhmm(s->alarm_time) || !s->alarm_time[0]) FAIL("alarm time must be HH:MM");
     if (s->tuner_a4 < 430 || s->tuner_a4 > 450) FAIL("tuner A4 is 430..450 Hz");
     if (s->metro_bpm < 30 || s->metro_bpm > 240) FAIL("metronome is 30..240 BPM");
@@ -202,19 +238,24 @@ esp_err_t settings_init(void)
     }
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READONLY, &h) == ESP_OK) {
-        stored_t st;
+        /* static: two copies of the settings are too much for the main task's stack (start-up only) */
+        static stored_t st;
         size_t len = sizeof st;
         if (nvs_get_blob(h, KEY, &st, &len) == ESP_OK) {
-            tg_settings_t s;
+            static tg_settings_t s;
             defaults(&s);
             if (st.version == VERSION && len == sizeof st) {
                 s = st.s;
+            } else if (st.version == 13 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, clap)) {
+                memcpy(&s, &st.s, offsetof(tg_settings_t, clap));
+            } else if (st.version == 12 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, accent)) {
+                memcpy(&s, &st.s, offsetof(tg_settings_t, accent));
             } else if (st.version == 11 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, led_color)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, led_color));
             } else if (st.version == 10 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, led_zone)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, led_zone));
-            } else if (st.version == 9 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, audio_view)) {
-                memcpy(&s, &st.s, offsetof(tg_settings_t, audio_view));
+            } else if (st.version == 9 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, audio_view_v12)) {
+                memcpy(&s, &st.s, offsetof(tg_settings_t, audio_view_v12));
             } else if (st.version == 8 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, mic_stream)) {
                 memcpy(&s, &st.s, offsetof(tg_settings_t, mic_stream));
             } else if (st.version == 7 && len >= sizeof(uint32_t) + offsetof(tg_settings_t, idle_min)) {
@@ -234,6 +275,10 @@ esp_err_t settings_init(void)
             }
             /* before v11 one LED mode ran all three zones (v1 and v2 keep the default, "status") */
             if (st.version < 11 && !settings_led_preset(&s, s.led_mode_v10)) settings_led_preset(&s, "status");
+            /* before v13 the AUDIO view had room for "eq" or "vu" only */
+            if (st.version < 13 && in_list(s.audio_view_v12, AUDIO_VIEWS, COUNT(AUDIO_VIEWS))) {
+                strlcpy(s.audio_view, s.audio_view_v12, sizeof s.audio_view);
+            }
             if (validate(&s, NULL, 0) == ESP_OK) {
                 s_cur = s;
                 ESP_LOGI(TAG, "loaded (stored version %lu)", (unsigned long)st.version);
@@ -333,6 +378,12 @@ char *settings_to_json(void)
     cJSON_AddNumberToObject(o, "idle_brightness", s.idle_brightness);
     cJSON_AddBoolToObject(o, "mic_stream", s.mic_stream);
     cJSON_AddStringToObject(o, "audio_view", s.audio_view);
+    char accent[8];
+    snprintf(accent, sizeof accent, "#%06lx", (unsigned long)s.accent);
+    cJSON_AddStringToObject(o, "accent", accent);
+    cJSON_AddStringToObject(o, "viz_palette", VIZ_PALETTES[s.viz_palette < VIZ_PAL_COUNT ? s.viz_palette : 0]);
+    cJSON_AddStringToObject(o, "clap", s.clap);
+    cJSON_AddBoolToObject(o, "noise_alert", s.noise_alert);
     cJSON *order = cJSON_AddArrayToObject(o, "world_order");
     for (int i = 0; i < 3; i++) cJSON_AddItemToArray(order, cJSON_CreateNumber(s.world_order[i] - '0'));
     cJSON *wn = cJSON_AddArrayToObject(o, "world_names"), *wt = cJSON_AddArrayToObject(o, "world_tz");
@@ -346,6 +397,10 @@ char *settings_to_json(void)
     for (size_t i = 0; i < COUNT(LED_EFFECTS); i++) cJSON_AddItemToArray(fx, cJSON_CreateString(LED_EFFECTS[i]));
     cJSON *views = cJSON_AddArrayToObject(o, "audio_views");
     for (size_t i = 0; i < COUNT(AUDIO_VIEWS); i++) cJSON_AddItemToArray(views, cJSON_CreateString(AUDIO_VIEWS[i]));
+    cJSON *claps = cJSON_AddArrayToObject(o, "clap_actions");
+    for (size_t i = 0; i < COUNT(CLAP_ACTIONS); i++) cJSON_AddItemToArray(claps, cJSON_CreateString(CLAP_ACTIONS[i]));
+    cJSON *pals = cJSON_AddArrayToObject(o, "viz_palettes");
+    for (size_t i = 0; i < COUNT(VIZ_PALETTES); i++) cJSON_AddItemToArray(pals, cJSON_CreateString(VIZ_PALETTES[i]));
     cJSON *panels = cJSON_AddArrayToObject(o, "panels");
     for (size_t i = 0; i < COUNT(PANELS); i++) cJSON_AddItemToArray(panels, cJSON_CreateString(PANELS[i]));
     char *out = cJSON_PrintUnformatted(o);
@@ -400,13 +455,19 @@ esp_err_t settings_from_json(const char *json, char *err, int err_len)
     }
     for (int z = 0; z < 3; z++) {
         copy_str(s.led_zone[z], sizeof s.led_zone[z], cJSON_GetObjectItem(o, LED_ZONE_KEYS[z]));
-        v = cJSON_GetObjectItem(o, LED_COLOR_KEYS[z]);
-        if (cJSON_IsString(v) && v->valuestring) {      /* "#RRGGBB" (or "RRGGBB") */
-            const char *h = v->valuestring + (v->valuestring[0] == '#');
-            char *end;
-            unsigned long c = strtoul(h, &end, 16);
-            s.led_color[z] = strlen(h) == 6 && *end == 0 ? (uint32_t)c : 0xFFFFFFFFu;   /* bad: fails validation */
-        }
+        bool given;
+        uint32_t c = parse_hex(cJSON_GetObjectItem(o, LED_COLOR_KEYS[z]), &given);
+        if (given) s.led_color[z] = c;
+    }
+    bool given;
+    uint32_t accent = parse_hex(cJSON_GetObjectItem(o, "accent"), &given);
+    if (given) s.accent = accent;
+    copy_str(s.clap, sizeof s.clap, cJSON_GetObjectItem(o, "clap"));
+    if (cJSON_IsBool(v = cJSON_GetObjectItem(o, "noise_alert"))) s.noise_alert = cJSON_IsTrue(v);
+    v = cJSON_GetObjectItem(o, "viz_palette");
+    if (cJSON_IsString(v) && v->valuestring) {
+        s.viz_palette = 0xFF;                           /* unknown: fails validation */
+        for (int i = 0; i < VIZ_PAL_COUNT; i++) if (strcmp(v->valuestring, VIZ_PALETTES[i]) == 0) s.viz_palette = (uint8_t)i;
     }
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(o, "led_brightness"))) s.led_brightness = (uint8_t)v->valuedouble;
     if (cJSON_IsBool(v = cJSON_GetObjectItem(o, "key_beep"))) s.key_beep = cJSON_IsTrue(v);

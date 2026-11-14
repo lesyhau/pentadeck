@@ -10,6 +10,7 @@
 #include "esp_err.h"
 
 #define MIC_BANDS 16
+#define MIC_FINE  32              /* the finer spectrum, 300 Hz .. 10 kHz, for recognising sounds */
 #define MIC_RATE  32000           /* samples per second */
 
 /* The band levels the spectrum displays span, bottom to top (the AUDIO screen, SOUND mode, the LEDs) */
@@ -22,6 +23,7 @@ typedef struct {
                                  sensitivity (-26 dBFS at 94 dB SPL), so SPL = dBFS + 120; not calibrated */
     float peak_dbfs;          /* loudest sample of the last block */
     float bands[MIC_BANDS];   /* spectrum, dB, 50 Hz .. 12 kHz, log spaced: each band's total power */
+    float fine[MIC_FINE];     /* the same, finer: 300 Hz .. 10 kHz in 32 bands */
     unsigned blocks;          /* blocks processed so far */
     const char *mode;         /* which mic wiring was detected */
     float probe_dbfs[4];      /* signal level seen while probing i2s-left, i2s-right, pdm-left, pdm-right */
@@ -45,6 +47,13 @@ int mic_onsets(float *out, int n, uint32_t *last_ms);
 void mic_chroma_on(bool on);
 /* The latest frame (not normalised) and its number (changes every 64 ms); false if none yet. */
 bool mic_chroma(float out[12], uint32_t *frame, float *energy);
+/* Double claps heard so far: two sharp claps 150..600 ms apart, then 0.6 s of no more (a rhythm or
+ * music doesn't count). Not while the buzzer sounds, nor in low power. */
+unsigned mic_double_claps(void);
+/* The newest block's samples (32 ms at 32 kHz, DC removed, -1..1), for the oscilloscope; returns the
+ * count copied (0 in low power). *block = the block's number, as in mic_snapshot_t.blocks. */
+#define MIC_WAVE 1024
+int mic_wave(float *out, int n, unsigned *block);
 /* The tuner's last 2048 samples (16 kHz, float), for tests; returns the count copied. */
 int mic_tuner_samples(float *out, int n);
 /* Low power: capture at 8 kHz and compute only the level (stays at 32 kHz while the mic is streamed). */

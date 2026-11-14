@@ -22,6 +22,9 @@
  *            88 °C (the screens' thresholds); a load alert blinks like the screens
  *   lab      the home lab's health: the colour breathing, amber on battery, a red pulse when something is down
  *   music    a loudness meter from the mic, turning orange and red when loud
+ *   spectrum the sound's spectrum: bass at the bottom of the side strips (the middle of the back), treble
+ *            at the top (the ends), each step as bright as its part of the sound; a flash on the beat.
+ *            In the visual effects' colours (settings viz_palette): the zone's own, a rainbow, or fire
  * The buttons board's LEDs (GPIO44, single colour) stay on at the LED brightness unless every zone is off. */
 #include <stdbool.h>
 #include <stdint.h>
@@ -43,8 +46,9 @@ void ledfx_hold(uint32_t ms);      /* pause the effects (LED tests from the web 
  *             the right, green all round when within 5 cents
  *   PROGRESS  a = 0..1 left (both strips drain from the top), b = 1 while running
  *   BEAT      a flash on every beat that fades (see ledfx_beat)
- *   ALARM     everything flashing orange */
-typedef enum { SCENE_NONE, SCENE_TUNER, SCENE_PROGRESS, SCENE_BEAT, SCENE_ALARM } ledfx_scene_t;
+ *   ALARM     everything flashing orange
+ *   NOTIFY    everything pulsing in one colour, b = 0xRRGGBB (a notification, a sound heard) */
+typedef enum { SCENE_NONE, SCENE_TUNER, SCENE_PROGRESS, SCENE_BEAT, SCENE_ALARM, SCENE_NOTIFY } ledfx_scene_t;
 void ledfx_scene(ledfx_scene_t scene, float a, float b);
 void ledfx_beat(uint32_t at_ms, bool accent);   /* a metronome beat at esp_timer ms */
 void ledfx_sleep(bool sleep);      /* everything dark, the buttons board too, until woken */

@@ -14,6 +14,7 @@
 #include "esp_timer.h"
 #include "hal/usb_serial_jtag_ll.h"
 
+#include "drivers/buzzer.h"
 #include "net/stream.h"
 
 static const char *TAG = "mic";
@@ -48,6 +49,8 @@ static float s_x[N];              /* samples, -1..1 */
 static void fft(float *re, float *im, int n);
 static float s_re[N], s_im[N], s_win[N];
 static int s_band_lo[MIC_BANDS], s_band_hi[MIC_BANDS];
+static int s_fine_lo[MIC_FINE], s_fine_hi[MIC_FINE];
+static int s_hf_lo;                /* the first bin above 2 kHz: what a clap is made of */
 static float s_aw[N / 2];          /* A-weighting per FFT bin, as a power factor */
 
 /* Tuner: YIN pitch detection on the signal decimated to 16 kHz. A 1024-sample window (64 ms) and
@@ -353,6 +356,15 @@ static void plan_bands(void)
         s_band_lo[b] = lo;
         s_band_hi[b] = hi;    /* bins [lo, hi) */
     }
+    for (int b = 0; b < MIC_FINE; b++) {
+        float f0 = 300.0f * powf(10000.0f / 300.0f, (float)b / MIC_FINE);
+        float f1 = 300.0f * powf(10000.0f / 300.0f, (float)(b + 1) / MIC_FINE);
+        int lo = (int)lroundf(f0 / bin_hz), hi = (int)lroundf(f1 / bin_hz);
+        if (hi <= lo) hi = lo + 1;
+        s_fine_lo[b] = lo;
+        s_fine_hi[b] = hi;
+    }
+    s_hf_lo = (int)lroundf(2000.0f / bin_hz);
     /* A-weighting (IEC 61672): R_A(f) = 12194^2 f^4 / ((f^2+20.6^2) sqrt((f^2+107.7^2)(f^2+737.9^2)) (f^2+12194^2)),
      * A(f) = 20 log10 R_A(f) + 2.00 dB; stored squared (power). */
     s_aw[0] = 0;
@@ -379,8 +391,68 @@ static float block_std(void)
     return sqrtf(sum2 / N);
 }
 
+/* ------------------------------------------------------------------ claps */
+
+/* A clap: the energy above 2 kHz jumping 15 dB over its recent average, in one 32 ms block. */
+static float s_hf_avg = -90.0f;
+static int64_t s_onset_at, s_clap_at[2];
+static int s_clap_n;
+static volatile unsigned s_double_claps;
+
+unsigned mic_double_claps(void) { return s_double_claps; }
+
+static void clap_update(float hf_db)
+{
+    int64_t now = esp_timer_get_time() / 1000;
+    bool quiet_buzzer = !buzzer_busy();
+    bool onset = quiet_buzzer && hf_db > s_hf_avg + 15.0f && hf_db > -58.0f && now - s_onset_at > 120;
+    /* the background: slow to rise (a clap doesn't lift it), quicker to fall */
+    s_hf_avg += (hf_db - s_hf_avg) * (hf_db > s_hf_avg ? 0.05f : 0.2f);
+    if (onset) {
+        s_onset_at = now;
+        if (s_clap_n == 1 && now - s_clap_at[0] >= 150) {
+            s_clap_n = 2;
+            s_clap_at[1] = now;
+        } else if (s_clap_n == 2) {
+            s_clap_n = 0;                             /* a third: a rhythm, not a command */
+        } else {
+            s_clap_n = 1;
+            s_clap_at[0] = now;
+        }
+    }
+    if (s_clap_n == 1 && now - s_clap_at[0] > 600) s_clap_n = 0;
+    if (s_clap_n == 2 && now - s_clap_at[1] > 600) {
+        s_clap_n = 0;
+        s_double_claps++;
+    }
+}
+
+/* the newest block for mic_wave(), as int16 (half the copy) */
+static int16_t s_wave[N];
+static unsigned s_wave_block;
+static bool s_wave_ok;
+
+int mic_wave(float *out, int n, unsigned *block)
+{
+    if (n > N) n = N;
+    static int16_t tmp[N];                 /* one reader (the UI task) */
+    portENTER_CRITICAL(&s_mux);
+    bool ok = s_wave_ok;
+    if (ok) memcpy(tmp, s_wave + N - n, n * sizeof(int16_t));
+    if (block) *block = s_wave_block;
+    portEXIT_CRITICAL(&s_mux);
+    if (!ok) return 0;
+    for (int i = 0; i < n; i++) out[i] = tmp[i] / 32768.0f;
+    return n;
+}
+
 static void analyse(float rms)
 {
+    static int16_t wave[N];
+    for (int i = 0; i < N; i++) {
+        float v = s_x[i] * 32768.0f;
+        wave[i] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+    }
     float peak = 0;
     for (int i = 0; i < N; i++) {
         if (fabsf(s_x[i]) > peak) peak = fabsf(s_x[i]);
@@ -409,6 +481,14 @@ static void analyse(float rms)
         p *= 16.0f / ((float)N * N);
         snap.bands[b] = 10.0f * log10f(p + 1e-12f);
     }
+    for (int b = 0; b < MIC_FINE; b++) {
+        float p = 0;
+        for (int k = s_fine_lo[b]; k < s_fine_hi[b]; k++) p += s_re[k] * s_re[k] + s_im[k] * s_im[k];
+        snap.fine[b] = 10.0f * log10f(p * 16.0f / ((float)N * N) + 1e-12f);
+    }
+    float hf = 0;
+    for (int k = s_hf_lo; k < N / 2; k++) hf += s_re[k] * s_re[k] + s_im[k] * s_im[k];
+    clap_update(10.0f * log10f(hf * 16.0f / ((float)N * N) + 1e-12f));
     if (s_tempo) onsets_update();
     if (s_chroma_on) chroma_update();
     snap.pitch_hz = NAN;
@@ -433,6 +513,9 @@ static void analyse(float rms)
     snap.mode = MODE_NAMES[s_mode];
     memcpy(snap.probe_dbfs, s_probe, sizeof s_probe);
     s_snap = snap;
+    memcpy(s_wave, wave, sizeof s_wave);
+    s_wave_block = snap.blocks;
+    s_wave_ok = true;
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -692,6 +775,7 @@ static void mic_task(void *arg)
             for (int b = 0; b < MIC_BANDS; b++) s_snap.bands[b] = -100.0f;
             s_snap.pitch_hz = NAN;
             s_snap.blocks++;
+            s_wave_ok = false;
             portEXIT_CRITICAL(&s_mux);
         } else if (err == ESP_OK) {
             stream_push(s_x, N);          /* raw, before block_std() takes the DC out in place */
