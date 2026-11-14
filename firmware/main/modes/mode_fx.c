@@ -1,9 +1,12 @@
-/* The sound level meter and the starfield. */
+/* The sound level meter, the starfield and the visual effects. */
 #include "modes/mode_kit.h"
 
 #include "esp_random.h"
 
+#include "core/listen.h"
 #include "drivers/mic.h"
+#include "ui/ledfx.h"
+#include "ui/viz.h"
 
 /* ============================================================ sound meter */
 
@@ -79,12 +82,19 @@ static void sm_draw(hud_fb_t *fb, int s)
         const char *label[3] = { "MAX", "MIN", "LEQ" };
         float v[3] = { sm_max, sm_min, sm_n ? 10.0f * log10f(sm_sum / sm_n) : NAN };
         for (int i = 0; i < 3; i++) {
-            int y = 38 + i * 22;
+            int y = 32 + i * 18;
             hud_text(fb, 18, y, label[i], &font_b8, C_LEGIBLE, "lm", 1);
             if (v[i] < 0 || v[i] > 1e8f || isnan(v[i])) snprintf(t, sizeof t, "\xE2\x80\x94");
             else snprintf(t, sizeof t, "%.0f", v[i]);
             hud_text(fb, 110, y, t, &font_o16, i == 0 ? sm_color(v[i]) : C_INK2, "rm", 0);
         }
+        /* the day's dose (core/listen.c): 85 dBA for 8 h = 100 % */
+        float dose, leq;
+        listen_dose(&dose, &leq);
+        snprintf(t, sizeof t, "%.0f%%", dose);
+        hud_text(fb, 18, 86, "DOSE", &font_b8, C_LEGIBLE, "lm", 1);
+        hud_text(fb, 110, 86, t, &font_o16, dose >= 100 ? C_DANGER : dose >= 50 ? C_ORANGE : C_INK2, "rm", 0);
+        mk_level_bar(fb, 18, 97, 110, 101, dose / 100.0f, 12);
         mk_softkey(fb, sm_z ? "A-WEIGHT" : "Z-WEIGHT");
         return;
     }
@@ -191,4 +201,53 @@ static void st_draw(hud_fb_t *fb, int s)
 
 const mode_def_t MODE_DEF_STARS = {
     .name = "STARS", .frameless = true, .enter = st_enter, .key = st_key, .update = st_update, .draw = st_draw,
+};
+
+/* ================================================================= visual */
+
+/* The visual effects (ui/viz.c) as one picture across the five screens. Left / right: the effect;
+ * power: the colours (accent, rainbow, fire). The LEDs flash on the beat. */
+static uint32_t vz_beat;
+static const char *const VZ_PALETTES[VIZ_PAL_COUNT] = { "ACCENT", "RAINBOW", "FIRE" };
+
+static viz_effect_t vz_effect(void) { return (viz_effect_t)(g_cfg.viz_effect % VIZ_COUNT); }
+
+static void vz_enter(void)
+{
+    vz_beat = viz_beat_ms();
+    mk_toast("VISUAL", viz_name(vz_effect()), NAN);
+}
+
+static void vz_key(const btn_event_t *e)
+{
+    if (e->kind == BTN_DOWN && !e->repeat && (e->key == KEY_LEFT || e->key == KEY_RIGHT)) {
+        int d = e->key == KEY_RIGHT ? 1 : -1;
+        g_cfg.viz_effect = (uint8_t)((vz_effect() + d + VIZ_COUNT) % VIZ_COUNT);
+        mk_toast("EFFECT", viz_name(vz_effect()), NAN);
+        mk_save_later();
+    } else if (e->kind == BTN_SHORT && e->key == KEY_POWER) {
+        g_cfg.viz_palette = (uint8_t)((g_cfg.viz_palette + 1) % VIZ_PAL_COUNT);
+        mk_toast("COLOURS", VZ_PALETTES[g_cfg.viz_palette], NAN);
+        mk_save_later();
+    }
+}
+
+static void vz_leds(void)
+{
+    ledfx_scene(SCENE_BEAT, 0, 0);
+    uint32_t b = viz_beat_ms();
+    if (b != vz_beat) {
+        vz_beat = b;
+        ledfx_beat(b, false);
+    }
+}
+
+static void vz_draw(hud_fb_t *fb, int s)
+{
+    const viz_view_t v = { .ox = -HUD_W * s, .oy = 0, .w = HUD_W * 5, .h = HUD_H };
+    viz_draw(fb, vz_effect(), &v, g_cfg.viz_palette % VIZ_PAL_COUNT);
+}
+
+const mode_def_t MODE_DEF_VISUAL = {
+    .name = "VISUAL", .frameless = true, .enter = vz_enter, .key = vz_key, .leds = vz_leds, .draw = vz_draw,
 };

@@ -38,7 +38,8 @@ static const note_t P_ACCENT[] = { {3136, 0, 20}, {0, 0, 0} };
 /* the timer ran out: a short wake-up melody (played again every 1.3 s while it rings) */
 static const note_t P_ALARM[]  = { {2637, 0, 110}, {0, 0, 30}, {3136, 0, 110}, {0, 0, 30}, {3951, 0, 110}, {0, 0, 30},
                                    {4186, 0, 210}, {0, 0, 90}, {3951, 0, 90}, {0, 0, 20}, {4186, 0, 260}, {0, 0, 0} };
-static const note_t P_MODE[]   = { {2600, 4200, 45}, {0, 0, 0} };
+/* a metronome-style click, pitched between the tick and the accent so it stays its own sound */
+static const note_t P_MODE[]   = { {2637, 0, 18}, {0, 0, 0} };
 /* battery low: a falling three-note phrase */
 static const note_t P_BATTERY[] = { {3136, 0, 100}, {0, 0, 40}, {2637, 0, 100}, {0, 0, 40}, {2093, 0, 260}, {0, 0, 0} };
 /* systems online: a swoop up, then a quick arpeggio */
@@ -52,6 +53,13 @@ static const note_t *const PATTERNS[] = { P_TEST, P_WARN, P_DOWN, P_UP, P_POWER,
 
 typedef struct { uint8_t pattern, volume; uint16_t hz, ms; } job_t;
 static QueueHandle_t s_q;
+static volatile bool s_playing;
+static volatile int64_t s_stopped_us;
+
+bool buzzer_busy(void)
+{
+    return s_playing || (s_q && uxQueueMessagesWaiting(s_q)) || esp_timer_get_time() - s_stopped_us < 150000;
+}
 
 static void tone(uint16_t hz, uint32_t duty)
 {
@@ -91,6 +99,7 @@ static void buzzer_task(void *arg)
     job_t j;
     for (;;) {
         if (xQueueReceive(s_q, &j, portMAX_DELAY) != pdTRUE) continue;
+        s_playing = true;
         /* loudness follows the duty cycle; square it so the slider feels even */
         uint32_t duty = (uint32_t)(512.0f * (j.volume / 100.0f) * (j.volume / 100.0f));
         if (duty < 4) duty = 4;
@@ -111,6 +120,8 @@ static void buzzer_task(void *arg)
             total += n->ms;
         }
         tone(0, 0);
+        s_stopped_us = esp_timer_get_time();
+        s_playing = false;
         /* a pause between alerts so they stay apart; clicks (metronome, keys) need none */
         wait_ms(total > 60 ? 150 : 5);
     }

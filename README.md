@@ -27,7 +27,7 @@ for your computers:
 | **CPU** | load dial, temperature, RAM, uptime, with the CPU's name as the title |
 | **Clock** | time, date, outside temperature and humidity (Open‑Meteo), the logo |
 | **GPU** | load dial, temperatures, VRAM, with the GPU's name as the title |
-| **Audio** | an 18‑band equaliser or a needle VU meter, and the room's loudness in dBA, from the built‑in mic |
+| **Audio** | a 16‑band equaliser, a needle VU meter or one of five visual effects (mirror, oscilloscope, waterfall, ripple, radial), and the room's loudness in dBA, from the built‑in mic |
 
 The order is a setting, and any screen can be turned off.
 
@@ -43,20 +43,34 @@ The order is a setting, and any screen can be turned off.
   - CPU or GPU load as a meter, turning orange and red when busy or hot;
   - the home lab's health;
   - a music meter, or a pulse that brightens with the sound;
+  - a spectrum along the strip, bass at one end and treble at the other;
   - glow, breathe, wave, comet, sparkle, fire or rainbow;
   - off.
 - **A Wi‑Fi microphone for your PC.** The stats agent can play the device's mic into a virtual
   audio cable, so Zoom, Discord or OBS can use it ([agent/README.md](agent/README.md#microphone)).
   The AUDIO screen turns into a red **MIC LIVE** while it's on, and a switch on the settings page
   turns the stream off.
+- **It listens:**
+  - **Double clap** to turn the LEDs or the screens on or off, step to the next mode, or go back to
+    the dashboard (your choice in the settings). The device's own beeps never count.
+  - **Your hearing:** the day's sound dose, as a hearing‑safety meter counts it (85 dBA for 8 hours
+    is 100 %), with a warning on the screens when the day passes 100 %.
+  - **Learned sounds:** teach it up to three sounds (a doorbell, a kettle, a phone) from the settings
+    page, and the screens say when one is heard.
+- **Messages on the screens.** A script, a build server or the remote page can put a card on the
+  middle screen with a sound and the LEDs pulsing (`POST /api/notify`, [docs/API.md](docs/API.md#notifications)).
 - **Low power when nobody's at the desk.** After a quiet spell with no one around (no sound, no
   buttons, no keyboard or mouse on the PC), the screens dim, the LEDs go off and the device slows
   down. Any sound wakes it. Day or night doesn't matter.
 - **Settings page.** A mobile‑first page served by the device on your LAN covers:
-  - the layout, brightness and night dimming;
-  - the LEDs and alerts;
+  - live: the PC's and home lab's stats, the spectrum the device hears, a **Listen** button that plays
+    the room in the browser, the day's sound dose, and charts of the last 24 hours;
+  - the layout, brightness and night dimming, the accent colour (the screens and the page);
+  - the LEDs and alerts, claps and learned sounds;
+  - your own picture on the clock screen, in place of the spinning logo;
   - the stats agents and the location;
-  - firmware updates.
+  - a remote with the five screens live and the device's buttons;
+  - firmware updates, and a backup of the settings to download and restore.
 - **Five buttons, Casio‑style modes.** MODE steps through them; a long MODE returns to the dashboard:
   - **Tuner:** a chromatic tuner from the microphone, from a bass's low E (41 Hz) to the top of a flute
     (2.3 kHz). The cents show across three screens, and the LED strips turn green when the note is in tune.
@@ -70,6 +84,9 @@ The order is a setting, and any screen can be turned off.
     the song's key and shows it the way a dizi is marked, "1 = Bb": the major scale that shares the
     song's notes (for a minor song, its relative major), so it names the dizi to pick. A second screen
     lists that dizi's notes from all holes closed (5 6 7 1 2 3 4) and lights the one you're playing.
+  - **Ear training:** the buzzer plays a note; sing or play it back, and the tuner scores how close
+    you came in any octave (within 50, 25 or 10 cents), with your streak. The LED strips show flat
+    or sharp as you hold the note.
   - **Metronome:** 30–240 BPM, with a pendulum, beat lights and a click on the buzzer.
   - **Stopwatch** with laps, and a **timer** that drains the LED strips and plays a melody at zero.
   - **Alarm:** a daily alarm (with LIGHT to snooze) and an hourly chime, set Casio‑style on the device.
@@ -78,7 +95,11 @@ The order is a setting, and any screen can be turned off.
     and left/right shift every clock to plan a call.
   - **Sound level:** dBA or dBZ, with max, min, Leq and a 16‑band spectrum across three screens.
   - **Stars:** a starfield through all five screens that speeds up with the music.
-  - **Settings:** brightness, LEDs, volume, alerts, key beep, 12/24 h, the AUDIO screen's view, edited on the device.
+  - **Visual:** effects from the microphone as one picture across all five screens: a spectrum, a
+    mirrored spectrum, an oscilloscope, a waterfall, ripples on the beat, and five radial spectra
+    from bass to treble. In the accent's colours, a rainbow or fire; the LEDs flash on the beat.
+  - **Settings:** brightness, LEDs, volume, alerts, key beep, 12/24 h, the AUDIO screen's view and the
+    accent colour, edited on the device.
 
   The buttons work the same way in every mode:
   - **LIGHT** gives full brightness for 10 s; a long press turns the LEDs off or on.

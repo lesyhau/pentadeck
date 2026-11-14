@@ -53,3 +53,10 @@ export const GaugeIcon = icon(<><path d="M3.8 17.5a8.5 8.5 0 1 1 16.4 0" /><path
 export const ScreensIcon = icon(<><rect x="2.5" y="6" width="5" height="5" rx="1" /><rect x="9.5" y="6" width="5" height="5" rx="1" /><rect x="16.5" y="6" width="5" height="5" rx="1" /><path d="M3.5 16h3M10.5 16h3M17.5 16h3" /></>)
 export const SlidersIcon = icon(<><path d="M4 7h8.5M17.5 7H20M4 17h2.5M11.5 17H20" /><circle cx="15" cy="7" r="2.5" /><circle cx="9" cy="17" r="2.5" /></>)
 export const ChipIcon = icon(<><rect x="6.5" y="6.5" width="11" height="11" rx="1.5" /><path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3" /></>)
+
+// Sound, the clock image, backups, notifications.
+export const SpeakerIcon = icon(<><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" /></>)
+export const StopIcon = icon(<rect x="7" y="7" width="10" height="10" rx="1.5" />)
+export const ImageIcon = icon(<><rect x="3.5" y="4.5" width="17" height="15" rx="1.5" /><circle cx="9" cy="10" r="1.8" /><path d="M20.5 16l-5-5-8.5 8.5" /></>)
+export const DownloadIcon = icon(<path d="M12 4.5V15M7.5 10.5L12 15l4.5-4.5M4.5 14.5v4a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-4" />)
+export const BellIcon = icon(<><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14z" /><path d="M10 20.5h4" /></>)

@@ -9,7 +9,7 @@ import type { Send } from '../components/Pairing'
  * App, above the pages, so leaving Settings and coming back keeps what was typed.
  */
 export function useSettings(send: Send) {
-  const [meta, setMeta] = useState<Pick<DeviceSettings, 'led_effects' | 'panels'>>({})
+  const [meta, setMeta] = useState<Pick<DeviceSettings, 'led_effects' | 'panels' | 'audio_views' | 'viz_palettes' | 'clap_actions'>>({})
   const [base, setBase] = useState<Draft | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -19,7 +19,7 @@ export function useSettings(send: Send) {
 
   const fill = useCallback((s: DeviceSettings) => {
     const d = toDraft(s)
-    setMeta({ led_effects: s.led_effects, panels: s.panels })
+    setMeta({ led_effects: s.led_effects, panels: s.panels, audio_views: s.audio_views, viz_palettes: s.viz_palettes, clap_actions: s.clap_actions })
     setBase(d)
     setDraft(d)
     setShowErrors(false)
@@ -64,7 +64,10 @@ export function useSettings(send: Send) {
     setSaveStatus(null)
   }
 
-  return { meta, draft, errors, dirty, set, load, loadFailed, save, saving, saveStatus, undo }
+  /** The accent as the device holds it (the draft's may be a preview). */
+  const savedAccent = base?.accent ?? null
+
+  return { meta, draft, errors, dirty, set, load, loadFailed, save, saving, saveStatus, undo, savedAccent }
 }
 
 export type Settings = ReturnType<typeof useSettings>

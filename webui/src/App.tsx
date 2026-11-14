@@ -5,6 +5,7 @@ import {
   type ButtonEvent, type ButtonKey,
 } from './lib/api'
 import { usePage } from './lib/router'
+import { applyAccent } from './lib/accent'
 import { TabBar, TopTabs } from './components/Nav'
 import { useStatus } from './hooks/useStatus'
 import { useSettings } from './hooks/useSettings'
@@ -13,6 +14,7 @@ import { Overview } from './pages/Overview'
 import { Remote } from './pages/Remote'
 import { SettingsPage } from './pages/Settings'
 import { DevicePage } from './pages/Device'
+import { NotifyCard } from './components/NotifyCard'
 
 /**
  * THE SHELL: the header, the four pages and their tabs, and everything the pages share - the live
@@ -55,6 +57,11 @@ export function App() {
   }, [])
 
   const settings = useSettings(send)
+
+  // The accent: the draft's while it is being picked (a preview), the saved one remembered for next time.
+  const shownAccent = settings.draft?.accent ?? settings.savedAccent
+  useEffect(() => { if (shownAccent) applyAccent(shownAccent) }, [shownAccent])
+  useEffect(() => { if (settings.savedAccent) applyAccent(settings.savedAccent, true) }, [settings.savedAccent])
 
   // -- One-off actions, each with its result under its buttons ----------------------------------------
   const [ledBusy, setLedBusy] = useState<'test' | 'resume' | null>(null)
@@ -140,7 +147,7 @@ export function App() {
             : 'pb-[calc(var(--pd-tabbar)+env(safe-area-inset-bottom)+3rem)] lg:pb-12',
         )}
       >
-        {page === 'overview' && <Overview status={status} online={online} />}
+        {page === 'overview' && <Overview status={status} online={online} send={send} />}
 
         {page === 'remote' && (
           <>
@@ -156,12 +163,16 @@ export function App() {
               notice={notices.remote ?? null}
               className="max-sm:-mx-4 max-sm:rounded-none max-sm:border-x-0 max-sm:px-3"
             />
+            <div className="mt-4 sm:mt-6">
+              <NotifyCard send={send} />
+            </div>
           </>
         )}
 
         {onSettings && (
           <SettingsPage
             settings={settings}
+            send={send}
             onTestLeds={testLeds}
             onResumeLeds={resumeLeds}
             ledBusy={ledBusy}
@@ -175,6 +186,8 @@ export function App() {
           <DevicePage
             status={status}
             paired={!!token}
+            send={send}
+            onRestored={settings.load}
             onToken={paired}
             onForget={forget}
             onInstall={install}

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
-  Button, ButtonRow, Card, CheckIcon, ConfirmDialog, FileDrop, InlineNotice, LinkIcon, NoticeLine, PageTitle, Progress,
+  Button, ButtonRow, Card, CheckIcon, ConfirmDialog, DownloadIcon, FileDrop, InlineNotice, LinkIcon, NoticeLine, PageTitle, Progress,
   RestartIcon, Reveal, StatTile, cn, type Note,
 } from '../ui'
-import { bytes, getJson, signalWords, uptime, type DeviceInfo, type DeviceStatus } from '../lib/api'
-import { PairCode, usePairing } from '../components/Pairing'
+import {
+  SETTINGS_LISTS, bytes, getJson, post, refusal, signalWords, uptime, type DeviceInfo, type DeviceSettings, type DeviceStatus,
+} from '../lib/api'
+import { PairCode, usePairing, type Send } from '../components/Pairing'
 
 /**
  * THE DEVICE PAGE: whether this browser may change things (pairing), firmware updates, a reboot,
@@ -136,6 +138,86 @@ function RebootCard({ onReboot, rebooting, notice }: { onReboot: () => void; reb
   )
 }
 
+// -- Backup ---------------------------------------------------------------------------------------
+
+/** What a backup leaves out: the lists the device sends along, and the old LED mode (the zones say it). */
+const NOT_KEPT: readonly string[] = [...SETTINGS_LISTS, 'led_mode']
+
+function keepable(s: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(s).filter(([k]) => !NOT_KEPT.includes(k)))
+}
+
+function BackupCard({ send, fw, onRestored }: { send: Send; fw?: string; onRestored: () => void }) {
+  const [busy, setBusy] = useState<'save' | 'restore' | null>(null)
+  const [notice, setNotice] = useState<Note | null>(null)
+  const [pending, setPending] = useState<{ name: string; settings: Record<string, unknown> } | null>(null)
+
+  const download = async () => {
+    setBusy('save')
+    setNotice(null)
+    try {
+      const s = await getJson<DeviceSettings>('/api/settings')
+      const day = new Date().toISOString().slice(0, 10)
+      const blob = new Blob([JSON.stringify({ pentadeck: fw ?? '', saved: new Date().toISOString(), settings: keepable(s as unknown as Record<string, unknown>) }, null, 2)], { type: 'application/json' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `pentadeck-settings-${day}.json`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
+      setNotice({ tone: 'success', text: 'Saved to your downloads.' })
+    } catch {
+      setNotice({ tone: 'danger', text: 'The device did not send its settings.' })
+    }
+    setBusy(null)
+  }
+
+  const pick = async (file: File) => {
+    setNotice(null)
+    try {
+      const j = JSON.parse(await file.text()) as Record<string, unknown>
+      // A backup from this page wraps the settings; a bare GET /api/settings works too.
+      const s = (typeof j.settings === 'object' && j.settings ? j.settings : j) as Record<string, unknown>
+      if (!Array.isArray(s.sources) || typeof s.tz !== 'string') throw new Error('not settings')
+      setPending({ name: file.name, settings: keepable(s) })
+    } catch {
+      setNotice({ tone: 'danger', text: 'That file is not a Pentadeck settings backup.' })
+    }
+  }
+
+  const restore = async (p: { name: string; settings: Record<string, unknown> }) => {
+    setBusy('restore')
+    const r = await send(t => post('/api/settings', t, p.settings), { label: 'Restore now', run: () => restore(p) })
+    setBusy(null)
+    if (r.ok) {
+      onRestored()
+      setNotice({ tone: 'success', text: 'Restored. The device uses them now.' })
+    } else if (r.text || r.status) {
+      setNotice({ tone: 'danger', text: refusal(r) })
+    }
+  }
+
+  return (
+    <Card title="Backup" caption="All the settings in one file, to keep or to move to another device. Learned sounds and the clock image stay on the device.">
+      <div className="space-y-3">
+        <ButtonRow>
+          <Button variant="secondary" onClick={download} loading={busy === 'save'} icon={<DownloadIcon size={16} />}>Download settings</Button>
+        </ButtonRow>
+        <FileDrop accept=".json,application/json" onFile={pick} busy={busy !== null} label="Restore from a backup (.json)" hint="Or drop it here" />
+        <NoticeLine notice={notice} />
+      </div>
+      {pending && (
+        <ConfirmDialog
+          title="Replace the device's settings?"
+          description={`Everything in ${pending.name} takes the place of what the device has now. Unsaved changes on the Settings page are lost.`}
+          confirmLabel="Restore"
+          onCancel={() => setPending(null)}
+          onConfirm={() => { const p = pending; setPending(null); restore(p) }}
+        />
+      )}
+    </Card>
+  )
+}
+
 // -- Device info ----------------------------------------------------------------------------------
 
 const RESETS: Record<string, string> = {
@@ -206,8 +288,10 @@ function InfoCard({ status }: { status: DeviceStatus | null }) {
 
 // -- The page -------------------------------------------------------------------------------------
 
-export function DevicePage({ status, paired, onToken, onForget, onInstall, progress, onReboot, rebooting, notices }: {
+export function DevicePage({ status, paired, send, onRestored, onToken, onForget, onInstall, progress, onReboot, rebooting, notices }: {
   status: DeviceStatus | null
+  send: Send
+  onRestored: () => void
   paired: boolean
   onToken: (token: string) => void
   onForget: () => void
@@ -226,7 +310,10 @@ export function DevicePage({ status, paired, onToken, onForget, onInstall, progr
           <FirmwareCard fw={status?.fw} running={status?.running} onInstall={onInstall} progress={progress} notice={notices.firmware} />
           <RebootCard onReboot={onReboot} rebooting={rebooting} notice={notices.reboot} />
         </div>
-        <InfoCard status={status} />
+        <div className="space-y-4 sm:space-y-6">
+          <InfoCard status={status} />
+          <BackupCard send={send} fw={status?.fw} onRestored={onRestored} />
+        </div>
       </div>
     </>
   )

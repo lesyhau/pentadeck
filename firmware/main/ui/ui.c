@@ -20,7 +20,10 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "nvs.h"
 
+#include "core/history.h"
+#include "core/listen.h"
 #include "core/power.h"
 #include "core/settings.h"
 #include "drivers/display.h"
@@ -31,8 +34,11 @@
 #include "modes/modes.h"
 #include "net/netdata.h"
 #include "net/stream.h"
+#include "ui/viz.h"
 
 static const char *TAG = "ui";
+
+enum { AV_EQ = -1, AV_VU = -2 };
 
 typedef enum { P_LAB, P_CPU, P_NAV, P_GPU, P_AUDIO, P_OFF } panel_kind_t;
 
@@ -54,7 +60,9 @@ static host_stats_t s_h[TG_SOURCES];
 static weather_t s_w;
 static mic_snapshot_t s_m;
 static struct tm s_tm;
-static bool s_time_ok, s_hour24, s_audio_vu;
+static bool s_time_ok, s_hour24;
+static int s_audio_fx = AV_EQ;           /* the AUDIO screen: AV_EQ, AV_VU or a viz_effect_t */
+static int s_viz_pal;
 static uint32_t s_ms, s_settings_gen;
 
 /* performance counters, one-second windows, reported by ui_stats_json() */
@@ -280,13 +288,59 @@ static const hud_image_t *weather_icon(int code, bool day)
     return &img_icon_overcast;
 }
 
+/* your own clock image (ui_emblem_set), or the logo */
+static uint8_t s_emblem[UI_EMBLEM * UI_EMBLEM * 2];
+static volatile bool s_emblem_on;
+static volatile uint32_t s_emblem_gen;
+
+esp_err_t ui_emblem_set(const uint8_t *px, size_t len)
+{
+    if (px && len != sizeof s_emblem) return ESP_ERR_INVALID_SIZE;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("tg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = px ? nvs_set_blob(h, "emblem", px, len) : nvs_erase_key(h, "emblem");
+        if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+    }
+    s_emblem_on = false;
+    if (px) {
+        memcpy(s_emblem, px, len);
+        s_emblem_on = true;
+    }
+    s_emblem_gen++;
+    return err;
+}
+
+bool ui_emblem_get(uint8_t *out)
+{
+    if (!s_emblem_on) return false;
+    memcpy(out, s_emblem, sizeof s_emblem);
+    return true;
+}
+
+static void emblem_load(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("tg", NVS_READONLY, &h) != ESP_OK) return;
+    size_t len = sizeof s_emblem;
+    s_emblem_on = nvs_get_blob(h, "emblem", s_emblem, &len) == ESP_OK && len == sizeof s_emblem;
+    nvs_close(h);
+}
+
 static int nav_colon_on(void)  { return (s_ms / 500) % 2 == 0; }      /* blinks once a second */
 static int nav_emblem(void)    { return (int)((s_ms * IMG_EMBLEM_FRAMES / IMG_EMBLEM_PERIOD_MS) % IMG_EMBLEM_FRAMES); }
 
 static void draw_nav(hud_fb_t *l)
 {
     hud_frame(l, C_ACCENT, C_P900, s_ms / 500);
-    hud_image(l, &img_emblem[nav_emblem()], 64 - IMG_EMBLEM_SIZE / 2, 24 - IMG_EMBLEM_SIZE / 2);
+    if (s_emblem_on) {
+        const hud_image_t own = { UI_EMBLEM, UI_EMBLEM, s_emblem };
+        hud_image(l, &own, 64 - UI_EMBLEM / 2, 24 - UI_EMBLEM / 2);
+    } else {
+        hud_image_accent(l, &img_emblem[nav_emblem()], 64 - IMG_EMBLEM_SIZE / 2, 24 - IMG_EMBLEM_SIZE / 2);
+    }
 
     /* HH:MM, zero-padded; the colon blinks, the digits never move */
     char hh[4] = "--", mm[4] = "--", date[24] = "";
@@ -515,13 +569,24 @@ static void draw_eq(hud_fb_t *l)
 
 static void draw_audio(hud_fb_t *l)
 {
+    if (s_audio_fx == AV_VU) {
+        draw_vu(l);
+    } else if (s_audio_fx == AV_EQ) {
+        draw_eq(l);
+    } else {
+        /* the effect fills the equaliser's box; whatever spills past it is cleared */
+        const viz_view_t v = { .ox = 9, .oy = 24, .w = 110, .h = 72 };
+        viz_draw(l, (viz_effect_t)s_audio_fx, &v, s_viz_pal);
+        hud_rect(l, 0, 0, HUD_W, v.oy - 1, C_CANVAS);
+        hud_rect(l, 0, v.oy + v.h + 1, HUD_W, HUD_H, C_CANVAS);
+        hud_rect(l, 0, 0, v.ox - 1, HUD_H, C_CANVAS);
+        hud_rect(l, v.ox + v.w + 1, 0, HUD_W, HUD_H, C_CANVAS);
+    }
     hud_frame(l, C_HUD, C_P900, s_ms / 500);
     /* a PC is streaming the mic: the header says so, in red (stream.c) */
     bool live = stream_listeners() > 0;
     hud_header(l, F.b9, live ? "MIC LIVE" : "AUDIO", 12, 2, live ? 'r' : led_side(mic_ok(), 'l'), C_DANGER,
                live ? C_DANGER : C_LEGIBLE, C_HUD_DIM);
-    if (s_audio_vu) draw_vu(l);
-    else draw_eq(l);
     /* loudness; SPL ~ dBFS + 120 for a typical -26 dBFS @ 94 dB SPL MEMS mic */
     char v[16];
     snprintf(v, sizeof v, "%.0f dBA", 10.0f * log10f(s_pa));
@@ -570,7 +635,7 @@ static uint32_t content_key(const panel_t *p)
     case P_LAB:
         return host_key(h, &s_h[1]);
     case P_NAV: {
-        int v[2] = { s_tm.tm_min + 60 * s_tm.tm_hour + 1440 * s_tm.tm_yday, s_hour24 };
+        int v[3] = { s_tm.tm_min + 60 * s_tm.tm_hour + 1440 * s_tm.tm_yday, s_hour24, (int)s_emblem_gen };
         h = fnv(h, v, sizeof v);
         h = fnv(h, &s_w, sizeof s_w - sizeof s_w.age_ms);
         return host_key(h, &s_h[1]);
@@ -591,7 +656,7 @@ static int anim_step(const panel_t *p)
     case P_CPU:
     case P_GPU:
     case P_LAB:   return live_phase();                        /* 150 ms steps */
-    case P_NAV:   return nav_emblem() * 2 + nav_colon_on();   /* 15 fps emblem, colon blink */
+    case P_NAV:   return (s_emblem_on ? 0 : nav_emblem() * 2) + nav_colon_on();   /* 15 fps emblem, colon blink */
     case P_AUDIO: return (int)(s_ms / 33);                    /* every frame */
     default:      return 0;
     }
@@ -612,7 +677,10 @@ static void snapshot(void)
         tg_settings_t cfg;
         settings_get(&cfg);
         s_hour24 = cfg.hour24;
-        s_audio_vu = strcmp(cfg.audio_view, "vu") == 0;
+        hud_set_accent(cfg.accent);
+        viz_effect_t fx;
+        s_audio_fx = strcmp(cfg.audio_view, "vu") == 0 ? AV_VU : viz_from_key(cfg.audio_view, &fx) ? (int)fx : AV_EQ;
+        s_viz_pal = cfg.viz_palette;
         for (int s = 0; s < TG_SCREENS; s++) {
             s_panel[s].kind = kind_of(cfg.layout[s]);
             s_panel[s].key = 0;
@@ -707,6 +775,9 @@ static void ui_task(void *arg)
         snapshot();
         audio_update();
         vu_update();
+        viz_update(s_ms);
+        listen_update(s_ms);
+        history_tick(s_ms);
         modes_update(s_ms);
         if (frame % 4 == 0 || idle || modes_sleeping() != was_asleep) backlight_update();
         ui_mode_t mode = modes_current();
@@ -787,6 +858,9 @@ esp_err_t ui_start(void)
         s_panel[s] = (panel_t){ .screen = s, .kind = P_OFF, .key = 0, .anim = -1 };
     }
     s_settings_gen = 0;                   /* the first frame loads the layout */
+    emblem_load();
+    listen_init();
+    history_init();
     modes_init();
     xTaskCreatePinnedToCore(ui_task, "ui", 6144, NULL, 5, NULL, 1);
     ESP_LOGI(TAG, "cockpit running");

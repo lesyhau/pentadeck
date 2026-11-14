@@ -2,7 +2,8 @@ import { useId, useState } from 'react'
 import {
   Button, ButtonRow, Card, Field, Input, NoticeLine, Reveal, Segmented, Select, Slider, SwitchRow, cn, type Note,
 } from '../ui'
-import { LED_EFFECT_HINTS, LED_EFFECT_NAMES, LED_OWN_COLOURS, PANEL_NAMES, SLOT_NAMES } from '../lib/api'
+import { AUDIO_VIEW_HINTS, AUDIO_VIEW_NAMES, CLAP_NAMES, LED_EFFECT_HINTS, LED_EFFECT_NAMES, LED_OWN_COLOURS, PANEL_NAMES, SLOT_NAMES } from '../lib/api'
+import { ACCENTS } from '../lib/accent'
 import type { Draft, DraftErrors } from '../lib/form'
 
 /**
@@ -18,6 +19,12 @@ export interface FormProps {
   set: <K extends keyof Draft>(key: K, value: Draft[K]) => void
   panels: string[]
   ledEffects: string[]
+  /** What the AUDIO screen can show (the firmware's list). */
+  audioViews: string[]
+  /** The visual effects' colour sets; empty with firmware before the accent and the effects. */
+  vizPalettes: string[]
+  /** What a double clap can do; empty with firmware before claps. */
+  clapActions: string[]
 }
 
 // -- Display --------------------------------------------------------------------------------------
@@ -36,7 +43,7 @@ function DeckPreview({ layout }: { layout: string[] }) {
             key={i}
             className={cn(
               'grid aspect-square place-items-center rounded-[3px] border bg-black text-[10px] font-medium uppercase tracking-[0.1em] sm:text-[11px]',
-              off ? 'border-[#222426] text-[#5A5D62]' : 'border-[#1B5E78] text-[#78BED9]',
+              off ? 'border-[#222426] text-[#5A5D62]' : 'border-[rgb(var(--pd-a800))] text-[rgb(var(--pd-a400))]',
             )}
           >
             {PANEL_SHORT[panel] ?? panel}
@@ -47,11 +54,14 @@ function DeckPreview({ layout }: { layout: string[] }) {
   )
 }
 
-export function DisplaySection({ draft, set, errors, panels }: FormProps) {
+export function DisplaySection({ draft, set, errors, panels, audioViews, vizPalettes }: FormProps) {
   const options = panels.map(p => ({ value: p, label: PANEL_NAMES[p] ?? p }))
   const screensId = useId()
   const audioId = useId()
+  const accentId = useId()
+  const paletteId = useId()
   const idleId = useId()
+  const effects = vizPalettes.length > 0
   const setNight = (on: boolean) => {
     // Turned on with no window yet: the usual night, ready to adjust.
     if (on && !draft.night_start && !draft.night_end) {
@@ -102,6 +112,12 @@ export function DisplaySection({ draft, set, errors, panels }: FormProps) {
 
       <SwitchRow title="24-hour clock" checked={draft.hour24} onChange={v => set('hour24', v)} />
 
+      {effects && (
+        <Field id={accentId} group label="Accent colour" hint="The screens' frames, headings and bars, the logo, and this page." error={errors.accent}>
+          <ColourPicker label="Accent colour" value={draft.accent} onChange={v => set('accent', v)} colours={ACCENTS} />
+        </Field>
+      )}
+
       <Field id={screensId} group label="Screens, left to right">
         <DeckPreview layout={draft.layout} />
         <ul className="divide-y divide-line rounded-lg border border-line">
@@ -123,26 +139,34 @@ export function DisplaySection({ draft, set, errors, panels }: FormProps) {
         </ul>
       </Field>
 
-      <Field id={audioId} group label="Audio screen">
-        <Segmented
-          labelledBy={`${audioId}-label`}
+      <Field id={audioId} label="Audio screen">
+        <Select
+          id={audioId}
           value={draft.audio_view}
+          options={audioViews.map(v => ({ value: v, label: AUDIO_VIEW_NAMES[v] ?? v }))}
           onChange={v => set('audio_view', v)}
-          options={AUDIO_VIEWS}
+          ariaLabel="Audio screen"
         />
-        <p key={draft.audio_view} className="pd-fade-in mt-2 min-h-[2lh] max-w-[60ch] text-[13px] leading-snug text-ink-2">
-          {AUDIO_HINTS[draft.audio_view] ?? ''}
+        <p key={draft.audio_view} className="pd-fade-in mt-2 max-w-[60ch] text-[13px] leading-snug text-ink-2">
+          {AUDIO_VIEW_HINTS[draft.audio_view] ?? ''}
         </p>
       </Field>
+
+      {effects && (
+        <Field id={paletteId} group label="Effect colours" hint="For the effects on the audio screen and in the VISUAL mode (where power changes them too).">
+          <Segmented
+            labelledBy={`${paletteId}-label`}
+            value={draft.viz_palette}
+            onChange={v => set('viz_palette', v)}
+            options={vizPalettes.map(p => ({ value: p, label: PALETTE_NAMES[p] ?? p }))}
+          />
+        </Field>
+      )}
     </Card>
   )
 }
 
-const AUDIO_VIEWS = [{ value: 'eq', label: 'Equaliser' }, { value: 'vu', label: 'VU meter' }]
-const AUDIO_HINTS: Record<string, string> = {
-  eq: '16 bars, from bass to treble.',
-  vu: 'A needle meter, like on a stereo.',
-}
+const PALETTE_NAMES: Record<string, string> = { accent: 'Accent', rainbow: 'Rainbow', fire: 'Fire' }
 
 // -- LEDs -----------------------------------------------------------------------------------------
 
@@ -170,11 +194,16 @@ const SWATCH = 'relative h-9 w-9 shrink-0 rounded-full border border-line-strong
 const PICKED = 'shadow-[0_0_0_2px_rgb(var(--pd-surface)),0_0_0_4px_rgb(var(--pd-accent))]'
 
 /** The presets, and "Custom" for any other colour (the system's colour picker). */
-function ColourPicker({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
-  const custom = !LED_COLOURS.some(c => c.value === value.toLowerCase())
+function ColourPicker({ value, onChange, label, colours = LED_COLOURS }: {
+  value: string
+  onChange: (v: string) => void
+  label: string
+  colours?: { value: string; label: string }[]
+}) {
+  const custom = !colours.some(c => c.value === value.toLowerCase())
   return (
     <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2.5">
-      {LED_COLOURS.map(c => (
+      {colours.map(c => (
         <button
           key={c.value}
           type="button"
@@ -288,12 +317,31 @@ const SOUNDS = [
   { value: '12', label: 'Hourly chime' },
 ]
 
-export function MicSection({ draft, set }: FormProps) {
+export function MicSection({ draft, set, clapActions }: FormProps) {
+  const clapId = useId()
   return (
-    <Card title="Microphone" caption="Use the device's mic on your PC, over Wi-Fi.">
+    <Card title="Microphone" caption="Claps, your hearing, and the mic on your PC.">
+      {clapActions.length > 0 && (
+        <Field id={clapId} label="Double clap" hint="Two sharp claps, a beat apart. The device's own beeps are ignored.">
+          <Select
+            id={clapId}
+            value={draft.clap}
+            onChange={v => set('clap', v)}
+            options={clapActions.map(a => ({ value: a, label: CLAP_NAMES[a] ?? a }))}
+          />
+        </Field>
+      )}
+      {clapActions.length > 0 && (
+        <SwitchRow
+          title="Warn about loud days"
+          caption="A card on the screens when the day's sound dose passes 100 %: 8 hours at 85 dBA, or the same in louder, shorter bursts."
+          checked={draft.noise_alert}
+          onChange={v => set('noise_alert', v)}
+        />
+      )}
       <SwitchRow
         title="Let PCs use the mic"
-        caption="The AUDIO screen shows MIC LIVE while a PC listens. The device's own features use the mic either way."
+        caption="Also lets this page listen in. The AUDIO screen shows MIC LIVE while anyone listens. The device's own features use the mic either way."
         checked={draft.mic_stream}
         onChange={v => set('mic_stream', v)}
       />

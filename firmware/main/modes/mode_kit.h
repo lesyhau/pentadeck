@@ -58,7 +58,8 @@ typedef struct {
 extern const mode_def_t MODE_DEF_TUNER, MODE_DEF_LONGTONE, MODE_DEF_TEMPO, MODE_DEF_CHORDS,
                         MODE_DEF_METRO;                                                       /* mode_music.c */
 extern const mode_def_t MODE_DEF_CHRONO, MODE_DEF_TIMER, MODE_DEF_ALARM, MODE_DEF_WORLD;     /* mode_time.c */
-extern const mode_def_t MODE_DEF_SOUND, MODE_DEF_STARS;                                      /* mode_fx.c */
+extern const mode_def_t MODE_DEF_SOUND, MODE_DEF_STARS, MODE_DEF_VISUAL;                     /* mode_fx.c */
+extern const mode_def_t MODE_DEF_EAR;                                                        /* mode_ear.c */
 
 void time_tick(void);                 /* mode_time.c: every frame, whatever shows (timer, alarm, chime) */
 float music_tempo_bpm(void);          /* mode_music.c: the tempo finder's reading, NAN if none */

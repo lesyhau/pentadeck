@@ -12,6 +12,8 @@
 #include "esp_timer.h"
 
 #include "app.h"
+#include "core/history.h"
+#include "core/listen.h"
 #include "core/power.h"
 #include "core/settings.h"
 #include "drivers/buttons.h"
@@ -119,6 +121,12 @@ static esp_err_t status_get(httpd_req_t *req)
     cJSON_AddNumberToObject(mo, "listeners", stream_listeners());   /* PCs streaming the mic now */
     cJSON_AddNumberToObject(mo, "rate", mic_rate());
     add_num(mo, "background_dbfs", mic_floor_db());
+
+    float dose, leq;
+    listen_dose(&dose, &leq);
+    cJSON *ho = cJSON_AddObjectToObject(o, "hearing");      /* the day's sound dose (core/listen.c) */
+    add_num(ho, "dose_pct", dose);
+    add_num(ho, "leq_dba", leq);
 
     cJSON *po = cJSON_AddObjectToObject(o, "power");
     cJSON_AddStringToObject(po, "state", power_idle() ? "idle" : "full");
@@ -352,6 +360,228 @@ static esp_err_t leds_post(httpd_req_t *req)
     return httpd_resp_sendstr(req, "ok\n");
 }
 
+/* A body of up to `max` bytes, NUL-terminated; NULL (and the error sent) when it isn't that. */
+static char *read_body(httpd_req_t *req, int max)
+{
+    if (req->content_len <= 0 || req->content_len > max) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "wrong body size");
+        return NULL;
+    }
+    char *body = malloc(req->content_len + 1);
+    if (!body) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no memory");
+        return NULL;
+    }
+    int got = 0;
+    while (got < req->content_len) {
+        int n = httpd_req_recv(req, body + got, req->content_len - got);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (n <= 0) {
+            free(body);
+            return NULL;
+        }
+        got += n;
+    }
+    body[got] = 0;
+    return body;
+}
+
+/* %XX and + in a query value, in place */
+static void url_decode(char *s)
+{
+    char *o = s;
+    for (; *s; s++) {
+        if (*s == '+') *o++ = ' ';
+        else if (*s == '%' && s[1] && s[2]) {
+            char h[3] = { s[1], s[2], 0 };
+            *o++ = (char)strtol(h, NULL, 16);
+            s += 2;
+        } else *o++ = *s;
+    }
+    *o = 0;
+}
+
+static const struct { const char *name; int pattern; } SOUNDS[] = {
+    { "none", -1 }, { "chime", BZ_CHIME }, { "test", BZ_TEST }, { "up", BZ_UP }, { "down", BZ_DOWN }, { "warn", BZ_WARN },
+    { "power", BZ_POWER }, { "battery", BZ_BATTERY }, { "alarm", BZ_ALARM }, { "boot", BZ_BOOT }, { "key", BZ_KEY },
+};
+
+/* POST /api/notify {"title", "text", "seconds" (10; 0 = until a button), "sound" (chime, none, up, ...),
+ * "color" ("#rrggbb", the accent by default)}: a card over the middle screen, the LEDs pulsing */
+static esp_err_t notify_post(httpd_req_t *req)
+{
+    if (!http_authorized(req)) return ESP_OK;
+    char *body = read_body(req, 2048);
+    if (!body) return ESP_OK;
+    cJSON *o = cJSON_Parse(body);
+    free(body);
+    if (!o) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body must be JSON");
+    const cJSON *title = cJSON_GetObjectItem(o, "title"), *text = cJSON_GetObjectItem(o, "text");
+    const cJSON *secs = cJSON_GetObjectItem(o, "seconds"), *snd = cJSON_GetObjectItem(o, "sound");
+    const cJSON *col = cJSON_GetObjectItem(o, "color");
+    if (!cJSON_IsString(title) && !cJSON_IsString(text)) {
+        cJSON_Delete(o);
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "give a title or a text");
+    }
+    int sound = BZ_CHIME;
+    if (cJSON_IsString(snd)) {
+        sound = -2;
+        for (size_t i = 0; i < sizeof SOUNDS / sizeof SOUNDS[0]; i++) if (strcmp(snd->valuestring, SOUNDS[i].name) == 0) sound = SOUNDS[i].pattern;
+        if (sound == -2) {
+            cJSON_Delete(o);
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "sound: none, chime, test, up, down, warn, power, battery, alarm, boot or key");
+        }
+    }
+    uint32_t color = hud_ramp.p400;
+    if (cJSON_IsString(col)) {
+        const char *h = col->valuestring + (col->valuestring[0] == '#');
+        char *end;
+        unsigned long c = strtoul(h, &end, 16);
+        if (strlen(h) != 6 || *end) {
+            cJSON_Delete(o);
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "color must be #rrggbb");
+        }
+        color = (uint32_t)c;
+    }
+    modes_notify(cJSON_IsString(title) ? title->valuestring : "", cJSON_IsString(text) ? text->valuestring : "",
+                 cJSON_IsNumber(secs) ? (int)secs->valuedouble : 10, sound, color);
+    cJSON_Delete(o);
+    return httpd_resp_sendstr(req, "ok\n");
+}
+
+/* GET /api/spectrum: the 16 bands now, 0..100 (the screens' scale), and the level */
+static esp_err_t spectrum_get(httpd_req_t *req)
+{
+    mic_snapshot_t m;
+    mic_get(&m);
+    char buf[256];
+    int k = snprintf(buf, sizeof buf, "{\"bands\":[");
+    for (int b = 0; b < MIC_BANDS; b++) {
+        float f = (m.bands[b] - MIC_BAND_FLOOR_DB) / (MIC_BAND_TOP_DB - MIC_BAND_FLOOR_DB);
+        f = f < 0 ? 0 : f > 1 ? 1 : f;
+        k += snprintf(buf + k, sizeof buf - k, "%s%d", b ? "," : "", (int)lroundf(f * 100));
+    }
+    if (isnan(m.dba)) k += snprintf(buf + k, sizeof buf - k, "],\"dba\":null}");
+    else k += snprintf(buf + k, sizeof buf - k, "],\"dba\":%.1f}", m.dba);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, buf, k);
+}
+
+/* GET /api/history: a value a minute for the last 24 hours, oldest first (core/history.h) */
+static esp_err_t history_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    int n = history_count();
+    char buf[512];
+    int k = snprintf(buf, sizeof buf, "{\"step_s\":%d,\"count\":%d,\"last\":%lld,\"series\":{", HIST_STEP_S, n,
+                     (long long)history_last());
+    for (int s = 0; s < HIST_SERIES; s++) {
+        k += snprintf(buf + k, sizeof buf - k, "%s\"%s\":[", s ? "," : "", history_name((hist_series_t)s));
+        for (int i = 0; i < n; i++) {
+            if (k > (int)sizeof buf - 16) {
+                if (httpd_resp_send_chunk(req, buf, k) != ESP_OK) return ESP_FAIL;
+                k = 0;
+            }
+            float v = history_at((hist_series_t)s, i);
+            if (isnan(v)) k += snprintf(buf + k, sizeof buf - k, "%snull", i ? "," : "");
+            else k += snprintf(buf + k, sizeof buf - k, "%s%.1f", i ? "," : "", v);
+        }
+        k += snprintf(buf + k, sizeof buf - k, "]");
+    }
+    k += snprintf(buf + k, sizeof buf - k, "}}");
+    if (httpd_resp_send_chunk(req, buf, k) != ESP_OK) return ESP_FAIL;
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
+/* GET /api/sounds: the learned sounds and any learning going on */
+static esp_err_t sounds_get(httpd_req_t *req)
+{
+    listen_slot_t sl[LISTEN_SLOTS];
+    listen_slots(sl);
+    uint32_t left;
+    int learning = listen_learning(&left);
+    cJSON *o = cJSON_CreateObject();
+    cJSON *arr = cJSON_AddArrayToObject(o, "slots");
+    for (int i = 0; i < LISTEN_SLOTS; i++) {
+        cJSON *s = cJSON_CreateObject();
+        cJSON_AddBoolToObject(s, "used", sl[i].used);
+        cJSON_AddBoolToObject(s, "on", sl[i].on);
+        cJSON_AddStringToObject(s, "name", sl[i].name);
+        cJSON_AddItemToArray(arr, s);
+    }
+    cJSON_AddNumberToObject(o, "learning", learning);
+    cJSON_AddNumberToObject(o, "left_ms", left);
+    static const char *const RES[] = { "none", "learned", "nothing" };
+    int r = listen_learn_result();
+    cJSON_AddStringToObject(o, "result", RES[r >= 0 && r <= 2 ? r : 0]);
+    char *out = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    esp_err_t err = httpd_resp_sendstr(req, out);
+    free(out);
+    return err;
+}
+
+/* POST /api/sounds?slot=0..2 and one of &learn=NAME (listen 4 s for it), &on=0|1, &forget=1 */
+static esp_err_t sounds_post(httpd_req_t *req)
+{
+    if (!http_authorized(req)) return ESP_OK;
+    char q[128] = "", v[48] = "";
+    httpd_req_get_url_query_str(req, q, sizeof q);
+    int slot = httpd_query_key_value(q, "slot", v, sizeof v) == ESP_OK ? atoi(v) : -1;
+    if (slot < 0 || slot >= LISTEN_SLOTS) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "slot must be 0..2");
+    bool ok;
+    if (httpd_query_key_value(q, "learn", v, sizeof v) == ESP_OK) {
+        url_decode(v);
+        if (!v[0]) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "learn needs a name");
+        ok = listen_learn(slot, v);
+        if (!ok) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "already learning a sound");
+    } else if (httpd_query_key_value(q, "on", v, sizeof v) == ESP_OK) {
+        ok = listen_enable(slot, atoi(v) != 0);
+        if (!ok) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "nothing learned in that slot");
+    } else if (httpd_query_key_value(q, "forget", v, sizeof v) == ESP_OK) {
+        listen_forget(slot);
+    } else {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "learn=NAME, on=0|1 or forget=1");
+    }
+    return sounds_get(req);
+}
+
+/* GET /api/emblem: your clock image (36 x 36 big-endian RGB565), 404 while the logo shows.
+ * POST /api/emblem with that as the body sets it; POST /api/emblem?clear=1 brings the logo back. */
+static esp_err_t emblem_get(httpd_req_t *req)
+{
+    static uint8_t px[UI_EMBLEM * UI_EMBLEM * 2];
+    if (!ui_emblem_get(px)) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "the logo shows");
+    httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, (const char *)px, sizeof px);
+}
+
+static esp_err_t emblem_post(httpd_req_t *req)
+{
+    if (!http_authorized(req)) return ESP_OK;
+    if (query_int(req, "clear", 0)) {
+        ui_emblem_set(NULL, 0);
+        return httpd_resp_sendstr(req, "ok\n");
+    }
+    const int len = UI_EMBLEM * UI_EMBLEM * 2;
+    if (req->content_len != len) {
+        char e[64];
+        snprintf(e, sizeof e, "the body must be %d bytes (36 x 36 RGB565)", len);
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, e);
+    }
+    char *body = read_body(req, len);
+    if (!body) return ESP_OK;
+    esp_err_t err = ui_emblem_set((const uint8_t *)body, len);
+    free(body);
+    if (err != ESP_OK) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
+    return httpd_resp_sendstr(req, "ok\n");
+}
+
 void web_register(httpd_handle_t server)
 {
     const httpd_uri_t uris[] = {
@@ -367,6 +597,13 @@ void web_register(httpd_handle_t server)
         { .uri = "/api/beep",     .method = HTTP_POST, .handler = beep_post },
         { .uri = "/api/leds",     .method = HTTP_POST, .handler = leds_post },
         { .uri = "/api/power",    .method = HTTP_POST, .handler = power_post },
+        { .uri = "/api/notify",   .method = HTTP_POST, .handler = notify_post },
+        { .uri = "/api/spectrum", .method = HTTP_GET,  .handler = spectrum_get },
+        { .uri = "/api/history",  .method = HTTP_GET,  .handler = history_get },
+        { .uri = "/api/sounds",   .method = HTTP_GET,  .handler = sounds_get },
+        { .uri = "/api/sounds",   .method = HTTP_POST, .handler = sounds_post },
+        { .uri = "/api/emblem",   .method = HTTP_GET,  .handler = emblem_get },
+        { .uri = "/api/emblem",   .method = HTTP_POST, .handler = emblem_post },
     };
     for (size_t i = 0; i < sizeof uris / sizeof uris[0]; i++) {
         httpd_register_uri_handler(server, &uris[i]);

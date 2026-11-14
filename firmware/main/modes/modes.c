@@ -9,6 +9,7 @@
 #include "esp_random.h"
 
 #include "app.h"
+#include "core/listen.h"
 #include "core/power.h"
 #include "drivers/mic.h"
 #include "modes/mode_kit.h"
@@ -30,6 +31,17 @@ static struct {
     float bar;                        /* 0..1, NAN = none */
     uint32_t until, gen;
 } s_toast;
+
+/* a notification: what the web posts (any task), and what shows */
+typedef struct { char title[24], text[96]; int seconds, sound; uint32_t color; } note_t;
+static portMUX_TYPE s_note_mux = portMUX_INITIALIZER_UNLOCKED;
+static note_t s_note_in;
+static volatile uint32_t s_note_in_gen;
+static uint32_t s_note_seen;
+static struct { bool on; note_t n; uint32_t until, gen; } s_note;
+static uint32_t s_heard_seen, s_dose_seen, s_claps_seen;
+static int s_learn_was = -1;
+static uint32_t s_learn_left;
 
 static struct {
     bool on;
@@ -166,6 +178,38 @@ static void pair_answer(bool allow)
     if (allow) mk_beep(BZ_UP);
 }
 
+void modes_notify(const char *title, const char *text, int seconds, int sound, uint32_t color)
+{
+    portENTER_CRITICAL(&s_note_mux);
+    strlcpy(s_note_in.title, title ? title : "", sizeof s_note_in.title);
+    strlcpy(s_note_in.text, text ? text : "", sizeof s_note_in.text);
+    s_note_in.seconds = seconds < 0 ? 0 : seconds > 3600 ? 3600 : seconds;
+    s_note_in.sound = sound;
+    s_note_in.color = color & 0xFFFFFFu;
+    s_note_in_gen++;
+    portEXIT_CRITICAL(&s_note_mux);
+}
+
+static void note_show(const note_t *n)
+{
+    s_note.n = *n;
+    s_note.on = true;
+    s_note.until = g_ms + (uint32_t)n->seconds * 1000;
+    s_note.gen++;
+    s_sleep = false;
+    power_wake("notification");
+    bool quiet = g_cfg.quiet_night && settings_is_night(&g_cfg, netdata_time_valid());
+    if (n->sound >= 0 && !quiet) mk_beep((buzzer_pattern_t)n->sound);
+}
+
+static void note_local(const char *title, const char *text, int seconds, int sound, uint32_t color)
+{
+    note_t n = { .seconds = seconds, .sound = sound, .color = color };
+    strlcpy(n.title, title, sizeof n.title);
+    strlcpy(n.text, text, sizeof n.text);
+    note_show(&n);
+}
+
 static void ring_end(bool snooze)
 {
     s_ring.on = false;
@@ -175,17 +219,27 @@ static void ring_end(bool snooze)
 
 /* ------------------------------------------------------------------ setup */
 
-#define SETUP_ITEMS 13
+#define SETUP_ITEMS 14
 static int s_sel;
 static bool s_edit;
 static tg_settings_t s_draft;
 static const char *LED_MODES[] = { "off", "glow", "status", "music" };    /* settings.c's presets */
+/* settings.c's AUDIO_VIEWS, and what the menu calls them */
+static const char *AUDIO_VIEWS[][2] = { { "eq", "EQ" }, { "vu", "VU METER" }, { "mirror", "MIRROR" }, { "scope", "SCOPE" },
+                                        { "waterfall", "WATERFALL" }, { "ripple", "RIPPLE" }, { "radial", "RADIAL" } };
+#define AUDIO_VIEW_N (int)(sizeof AUDIO_VIEWS / sizeof AUDIO_VIEWS[0])
+
+static int audio_view_index(const char *key)
+{
+    for (int j = 0; j < AUDIO_VIEW_N; j++) if (strcmp(key, AUDIO_VIEWS[j][0]) == 0) return j;
+    return 0;
+}
 
 static const char *item_name(int i)
 {
     static const char *n[SETUP_ITEMS] = { "BRIGHTNESS", "NIGHT LEVEL", "LED MODE", "LED LEVEL", "VOLUME",
                                           "ALERTS", "KEY BEEP", "QUIET NIGHT", "LOW POWER", "IDLE LEVEL",
-                                          "CLOCK", "AUDIO VIEW", "DEVICE" };
+                                          "CLOCK", "AUDIO VIEW", "ACCENT", "DEVICE" };
     return n[i];
 }
 
@@ -204,7 +258,8 @@ static void item_value(const tg_settings_t *s, int i, char *out, size_t n, float
     case 8: if (s->idle_min) snprintf(out, n, "%d MIN", s->idle_min); else snprintf(out, n, "OFF"); break;
     case 9: snprintf(out, n, "%d%%", s->idle_brightness); *bar = s->idle_brightness / 100.0f; break;
     case 10: snprintf(out, n, "%s", s->hour24 ? "24H" : "12H"); break;
-    case 11: snprintf(out, n, "%s", strcmp(s->audio_view, "vu") == 0 ? "VU METER" : "EQ"); break;
+    case 11: snprintf(out, n, "%s", AUDIO_VIEWS[audio_view_index(s->audio_view)][1]); break;
+    case 12: snprintf(out, n, "%s", settings_accent_name(s->accent)); break;
     default: snprintf(out, n, "%s", app_fw_version()); break;
     }
 }
@@ -237,7 +292,16 @@ static void item_step(tg_settings_t *s, int i, int d)
     }
     case 9: s->idle_brightness = (uint8_t)clampi(s->idle_brightness + d * 5, 0, 100); break;
     case 10: s->hour24 = !s->hour24; break;
-    case 11: strlcpy(s->audio_view, strcmp(s->audio_view, "vu") == 0 ? "eq" : "vu", sizeof s->audio_view); break;
+    case 11:
+        strlcpy(s->audio_view, AUDIO_VIEWS[(audio_view_index(s->audio_view) + d + AUDIO_VIEW_N) % AUDIO_VIEW_N][0],
+                sizeof s->audio_view);
+        break;
+    case 12: {
+        int k = d > 0 ? -1 : 0;                       /* a custom colour (from the web page): to the first or last preset */
+        for (int j = 0; j < TG_ACCENT_N; j++) if (TG_ACCENTS[j].rgb == s->accent) k = j;
+        s->accent = TG_ACCENTS[(k + d + TG_ACCENT_N) % TG_ACCENT_N].rgb;
+        break;
+    }
     default: break;
     }
 }
@@ -298,6 +362,7 @@ static void setup_draw(hud_fb_t *fb, int s)
             mk_arrow(fb, 117, 48, 1, 13, C_ACCENT);
         }
         if (!isnan(bar)) mk_level_bar(fb, 20, 78, 108, 84, bar, 12);
+        if (i == 12) hud_rect(fb, 20, 78, 108, 84, v->accent);   /* the colour itself (it applies once saved) */
     }
     snprintf(t, sizeof t, "%02d / %02d", i + 1, SETUP_ITEMS);
     hud_text(fb, 64, 100, t, &font_b7, sel ? C_LEGIBLE : C_HUD_DIM, "mm", 1);
@@ -319,6 +384,7 @@ static const mode_def_t *def_of(ui_mode_t m)
     case MODE_LONGTONE: return &MODE_DEF_LONGTONE;
     case MODE_TEMPO:    return &MODE_DEF_TEMPO;
     case MODE_CHORDS:   return &MODE_DEF_CHORDS;
+    case MODE_EAR:      return &MODE_DEF_EAR;
     case MODE_METRO:    return &MODE_DEF_METRO;
     case MODE_CHRONO:   return &MODE_DEF_CHRONO;
     case MODE_TIMER:    return &MODE_DEF_TIMER;
@@ -326,6 +392,7 @@ static const mode_def_t *def_of(ui_mode_t m)
     case MODE_WORLD:    return &MODE_DEF_WORLD;
     case MODE_SOUND:    return &MODE_DEF_SOUND;
     case MODE_STARS:    return &MODE_DEF_STARS;
+    case MODE_VISUAL:   return &MODE_DEF_VISUAL;
     case MODE_SETUP:    return &MODE_DEF_SETUP;
     default:            return NULL;
     }
@@ -354,10 +421,52 @@ static void dash_key(const btn_event_t *e)
     }
 }
 
+/* the LEDs off, or back to what they were (a long LIGHT, a clap) */
+static void leds_toggle(void)
+{
+    tg_settings_t c = g_cfg;
+    bool off = settings_leds_off(&c);
+    if (!off) memcpy(s_prev_led, c.led_zone, sizeof s_prev_led);
+    if (off) memcpy(c.led_zone, s_prev_led, sizeof c.led_zone);
+    else settings_led_preset(&c, "off");
+    mk_save(&c);
+    char v[16];
+    snprintf(v, sizeof v, "%s", off ? settings_led_preset_of(&c) : "OFF");
+    for (char *p = v; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
+    mk_toast("LEDS", v, NAN);
+}
+
+static void clap(void)
+{
+    if (s_sleep) { s_sleep = false; return; }        /* asleep: a clap only wakes it */
+    if (s_ring.on) { ring_end(true); return; }        /* snooze (or stop, with nothing to snooze) */
+    if (s_note.on) { s_note.on = false; return; }
+    const char *a = g_cfg.clap;
+    if (strcmp(a, "leds") == 0) {
+        leds_toggle();
+    } else if (strcmp(a, "light") == 0) {
+        s_boost_until = g_ms + 10000;
+        mk_toast("CLAP", "FULL BRIGHTNESS", NAN);
+    } else if (strcmp(a, "mode") == 0) {
+        enter((ui_mode_t)((s_mode + 1) % MODE_COUNT));
+        mk_beep(BZ_MODE);
+    } else if (strcmp(a, "dash") == 0 && s_mode != MODE_DASH) {
+        enter(MODE_DASH);
+        mk_beep(BZ_MODE);
+    }
+}
+
 static void key(const btn_event_t *e)
 {
     if (s_ring.on) {                                  /* LIGHT snoozes; anything else stops */
         if (e->kind == BTN_DOWN) ring_end(e->key == KEY_LIGHT);
+        return;
+    }
+    if (s_note.on) {                                  /* any button closes it, and does nothing else */
+        if (e->kind == BTN_DOWN && !e->repeat) {
+            s_note.on = false;
+            s_swallow = e->key;
+        }
         return;
     }
     if (s_pair.ask) {                                 /* power allows; anything else refuses */
@@ -384,16 +493,7 @@ static void key(const btn_event_t *e)
         if (e->kind == BTN_SHORT) {
             s_boost_until = g_ms + 10000;
         } else if (e->kind == BTN_LONG) {
-            tg_settings_t c = g_cfg;
-            bool off = settings_leds_off(&c);
-            if (!off) memcpy(s_prev_led, c.led_zone, sizeof s_prev_led);
-            if (off) memcpy(c.led_zone, s_prev_led, sizeof c.led_zone);
-            else settings_led_preset(&c, "off");
-            mk_save(&c);
-            char v[16];
-            snprintf(v, sizeof v, "%s", off ? settings_led_preset_of(&c) : "OFF");
-            for (char *p = v; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
-            mk_toast("LEDS", v, NAN);
+            leds_toggle();
         }
         return;
     }
@@ -449,10 +549,53 @@ void modes_update(uint32_t ms)
         c.tuner_a4 = g_cfg.tuner_a4;
         c.metro_bpm = g_cfg.metro_bpm;
         c.timer_min = g_cfg.timer_min;
+        c.viz_effect = g_cfg.viz_effect;
+        c.viz_palette = g_cfg.viz_palette;
         mk_save(&c);
     }
 
     time_tick();
+
+    /* what came from elsewhere: a notification, a learned sound, the day's dose, a clap, learning */
+    if (s_note_in_gen != s_note_seen) {
+        note_t n;
+        portENTER_CRITICAL(&s_note_mux);
+        n = s_note_in;
+        s_note_seen = s_note_in_gen;
+        portEXIT_CRITICAL(&s_note_mux);
+        note_show(&n);
+    }
+    char heard[LISTEN_NAME];
+    uint32_t hg = listen_heard(NULL, heard);
+    if (hg != s_heard_seen) {
+        s_heard_seen = hg;
+        note_local("HEARD", heard, 15, -1, 0xFF7A00u);
+    }
+    uint32_t dg = listen_dose_alerts();
+    if (dg != s_dose_seen) {
+        s_dose_seen = dg;
+        if (g_cfg.noise_alert) note_local("SOUND DOSE", "100% for today. Time for some quiet.", 20, BZ_CHIME, 0xFFB000u);
+    }
+    unsigned cg = mic_double_claps();
+    if (cg != s_claps_seen) {
+        s_claps_seen = cg;
+        if (strcmp(g_cfg.clap, "off") != 0) clap();
+    }
+    uint32_t left;
+    int learning = listen_learning(&left);
+    if (learning >= 0 && (learning != s_learn_was || (left + 999) / 1000 != s_learn_left)) {
+        s_learn_left = (left + 999) / 1000;
+        char v[20];
+        snprintf(v, sizeof v, "MAKE IT  %lus", (unsigned long)s_learn_left);
+        mk_toast("LISTENING", v, NAN);
+        s_sleep = false;
+        power_wake("learning");
+    } else if (learning < 0 && s_learn_was >= 0) {
+        mk_toast("LEARNING", listen_learn_result() == 1 ? "DONE" : "HEARD NOTHING", NAN);
+    }
+    s_learn_was = learning;
+    if (s_note.on && s_note.n.seconds && (int32_t)(ms - s_note.until) >= 0) s_note.on = false;
+
     if (s_pair.ask && g_ms - s_pair.since > 60000) pair_answer(false);          /* nobody answered */
     if (!s_pair.ask && s_pair.id && g_ms - s_pair.since > 30000) s_pair.id = 0;  /* never collected */
     if (s_pair.ask && s_sleep) s_sleep = false;
@@ -473,6 +616,7 @@ void modes_update(uint32_t ms)
     mic_chroma_on(mic & MK_MIC_CHROMA);
 
     if (s_ring.on) ledfx_scene(SCENE_ALARM, 0, 0);
+    else if (s_note.on) ledfx_scene(SCENE_NOTIFY, 0, (float)s_note.n.color);
     else if (d && d->leds) d->leds();
     else ledfx_scene(SCENE_NONE, 0, 0);
     ledfx_sleep(s_sleep);
@@ -503,12 +647,69 @@ int modes_backlight(int base_pct)
 
 bool modes_toast_active(void)
 {
-    return s_ring.on || s_pair.ask || (int32_t)(s_toast.until - g_ms) > 0;
+    return s_ring.on || s_pair.ask || s_note.on || (int32_t)(s_toast.until - g_ms) > 0;
 }
 
 uint32_t modes_toast_gen(void)
 {
-    return s_toast.gen * 4 + (s_ring.on ? 1 + mk_blink() : 0) + (s_pair.ask ? 3 + s_pair.code * 8u : 0);
+    return s_toast.gen * 4 + (s_ring.on ? 1 + mk_blink() : 0) + (s_pair.ask ? 3 + s_pair.code * 8u : 0) +
+           (s_note.on ? s_note.gen * 7919u : 0);
+}
+
+/* `text` in lines of at most max_w px, word by word; the last line cut with "…" when it doesn't fit */
+static int wrap(const char *text, const hud_font_t *f, int max_w, char lines[][48], int max_lines)
+{
+    int n = 0;
+    char cur[48] = "";
+    const char *p = text;
+    while (*p && n < max_lines) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        const char *e = p;
+        while (*e && *e != ' ') e++;
+        char word[48];
+        snprintf(word, sizeof word, "%.*s", (int)(e - p), p);
+        char next[100];
+        snprintf(next, sizeof next, "%s%s%s", cur, cur[0] ? " " : "", word);
+        if (!cur[0] || hud_text_w(next, f, 0) <= max_w) {
+            strlcpy(cur, next, sizeof cur);
+            p = e;
+            continue;
+        }
+        if (n == max_lines - 1) break;                /* the rest goes on the last line, cut */
+        strlcpy(lines[n++], cur, sizeof lines[0]);
+        cur[0] = 0;
+    }
+    if (n < max_lines && cur[0]) {
+        char last[160];
+        snprintf(last, sizeof last, "%s%s%s", cur, *p ? " " : "", p);
+        hud_ellipsize(lines[n++], sizeof lines[0], last, f, max_w, 0);
+    }
+    return n;
+}
+
+static void draw_note(hud_fb_t *fb)
+{
+    hud_color_t edge = s_note.n.color ? s_note.n.color : C_ACCENT;
+    hud_rect(fb, 6, 26, 122, 114, C_CANVAS);
+    hud_rect(fb, 6, 26, 122, 27, edge);
+    hud_rect(fb, 6, 113, 122, 114, edge);
+    hud_rect(fb, 6, 26, 7, 114, edge);
+    hud_rect(fb, 121, 26, 122, 114, edge);
+    char title[24];
+    hud_ellipsize(title, sizeof title, s_note.n.title[0] ? s_note.n.title : "NOTE", &font_b8, 104, 1);
+    hud_text(fb, 64, 37, title, &font_b8, edge, "mm", 1);
+    char lines[5][48];
+    const hud_font_t *f = &font_b12;
+    int n = wrap(s_note.n.text, f, 106, lines, 3), step = 16;
+    if (n == 3 && hud_text_w(s_note.n.text, f, 0) > 3 * 100) {   /* long: smaller, five lines */
+        f = &font_b9;
+        n = wrap(s_note.n.text, f, 106, lines, 5);
+        step = 11;
+    }
+    int y = 72 - (n - 1) * step / 2;
+    for (int i = 0; i < n; i++) hud_text(fb, 64, y + i * step, lines[i], f, C_INK, "mm", 0);
+    hud_text(fb, 64, 105, "ANY BUTTON: CLOSE", &font_b7, C_CAPTION, "mm", 1);
 }
 
 void modes_draw_toast(hud_fb_t *fb)
@@ -525,6 +726,10 @@ void modes_draw_toast(hud_fb_t *fb)
         hud_text(fb, 64, 72, code, &font_o28, C_INK, "ms", 0);
         hud_text(fb, 64, 84, "SAME CODE ON THE PAGE?", &font_b7, C_CAPTION, "mm", 0);
         hud_text(fb, 64, 96, "POWER: ALLOW \xC2\xB7 OTHER: NO", &font_b7, C_ACCENT, "mm", 0);
+        return;
+    }
+    if (s_note.on && !s_ring.on) {
+        draw_note(fb);
         return;
     }
     const char *title = s_ring.on ? s_ring.what : s_toast.title;
@@ -552,13 +757,14 @@ void modes_draw(hud_fb_t *fb, int screen)
         hud_frame(fb, frame, C_P900, (int)(g_ms / 500));
     }
     if (d->draw) d->draw(fb, screen);
-    /* the clock heads the middle screen in every mode (not SETUP: its headers name the settings) */
+    /* the clock heads the middle screen in every mode (not SETUP: its headers name the settings), on its
+     * own in the dashboard clock's Orbitron, no rule */
     if (screen == 2 && s_mode != MODE_SETUP && netdata_time_valid()) {
         time_t now = time(NULL);
         struct tm tm;
         localtime_r(&now, &tm);
         char t[8];
         strftime(t, sizeof t, g_cfg.hour24 ? "%H:%M" : "%I:%M", &tm);
-        mk_title(fb, t);
+        hud_text(fb, 64, 12, t, &font_o14, C_LEGIBLE, "mm", 0);
     }
 }

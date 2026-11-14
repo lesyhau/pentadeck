@@ -1,4 +1,5 @@
-import { LED_DEFAULT_COLOUR, LED_PRESETS, type DeviceSettings } from './api'
+import { LED_DEFAULT_COLOUR, LED_PRESETS, type DeviceSettings, type SETTINGS_LISTS } from './api'
+import { DEFAULT_ACCENT, isHex } from './accent'
 
 /**
  * THE FORM, as edited: the device's settings with the typed numbers kept as the text being typed
@@ -46,8 +47,15 @@ export interface Draft {
   idle_brightness: number
   mic_stream: boolean
   audio_view: string
+  /** '#rrggbb': the screens' and this page's accent. */
+  accent: string
+  /** The visual effects' colours: 'accent', 'rainbow' or 'fire'. */
+  viz_palette: string
   /** The World mode's clocks on screens 2, 3, 4: 0 = home, 1 and 2 = the two places. */
   world_order: number[]
+  /** What a double clap does. */
+  clap: string
+  noise_alert: boolean
 }
 
 export type DraftErrors = Partial<Record<keyof Draft, string>>
@@ -96,12 +104,16 @@ export function toDraft(s: DeviceSettings): Draft {
     idle_brightness: s.idle_brightness ?? 10,
     mic_stream: s.mic_stream ?? true,
     audio_view: s.audio_view ?? 'eq',
+    accent: s.accent ?? DEFAULT_ACCENT,
+    viz_palette: s.viz_palette ?? 'accent',
     world_order: s.world_order?.length === 3 ? [...s.world_order] : [1, 0, 2],
+    clap: s.clap ?? 'off',
+    noise_alert: s.noise_alert ?? true,
   }
 }
 
 /** What POST /api/settings is sent. Night off sends an empty window, as the device expects. */
-export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'led_effects' | 'panels'> {
+export function toPayload(d: Draft): Omit<DeviceSettings, (typeof SETTINGS_LISTS)[number]> {
   return {
     sources: [d.src0.trim(), d.src1.trim()],
     poll_ms: Number(d.poll_ms),
@@ -138,7 +150,11 @@ export function toPayload(d: Draft): Omit<DeviceSettings, 'led_modes' | 'led_eff
     idle_brightness: d.idle_brightness,
     mic_stream: d.mic_stream,
     audio_view: d.audio_view,
+    accent: d.accent.toLowerCase(),
+    viz_palette: d.viz_palette,
     world_order: d.world_order,
+    clap: d.clap,
+    noise_alert: d.noise_alert,
   }
 }
 
@@ -177,6 +193,7 @@ export function validate(d: Draft): DraftErrors {
   for (const k of ['w0tz', 'w1tz'] as const) {
     if (!/^(<[^>]+>|[A-Za-z]{3,})[+-]?\d/.test(d[k].trim())) e[k] = 'A POSIX time zone, such as IST-5:30.'
   }
+  if (!isHex(d.accent)) e.accent = 'A colour, #rrggbb.'
   for (const k of ['alert_cpu_temp', 'alert_gpu_temp', 'alert_vram_temp'] as const) {
     if (!inRange(d[k], 50, 120, true)) e[k] = '50 to 120.'
   }

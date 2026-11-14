@@ -53,7 +53,7 @@
 #include "ui/ledfx.h"
 #include "ui/ui.h"
 
-#define FW_VERSION      "0.20.0"
+#define FW_VERSION      "0.21.0"
 #define WIFI_FALLBACK_S 180   /* generous: the device sits at about -80 dBm */
 #define EV_GOT_IP       BIT0
 
@@ -142,6 +142,37 @@ static void wifi_start(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_ps(WIFI_PS_NONE);   /* mains powered: favour responsiveness */
+}
+
+/* A firmware that crashes before it reaches the network can't be updated over Wi-Fi, and the Wi-Fi
+ * fallback below never gets its three minutes. So: three crashes in a row, each within a minute of
+ * starting, and the other slot boots. The count lives in no-init RAM, which a crash's restart keeps. */
+#define CRASH_MAGIC 0xC4A5B007u
+static __NOINIT_ATTR struct { uint32_t magic, crashes; } s_crash;
+
+static void crash_guard(void)
+{
+    esp_reset_reason_t r = esp_reset_reason();
+    bool crash = r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT || r == ESP_RST_WDT;
+    if (s_crash.magic != CRASH_MAGIC || !crash) {
+        s_crash.magic = CRASH_MAGIC;
+        s_crash.crashes = 0;
+    }
+    if (!crash) return;
+    s_crash.crashes++;
+    ESP_LOGW(TAG, "started after a crash (%lu in a row)", (unsigned long)s_crash.crashes);
+    if (s_crash.crashes < 3) return;
+    const esp_partition_t *other = other_slot();
+    s_crash.crashes = 0;
+    if (slot_has_app(other) && esp_ota_set_boot_partition(other) == ESP_OK) {
+        ESP_LOGE(TAG, "crashing on start: booting %s instead", other->label);
+        esp_restart();
+    }
+}
+
+static void crash_clear(void *arg)        /* a minute up: this firmware runs */
+{
+    s_crash.crashes = 0;
 }
 
 /* If the network never comes up, go back to the other slot rather than sit unreachable. */
@@ -507,7 +538,7 @@ static esp_err_t test_post(httpd_req_t *req)
 static void http_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 32;
+    cfg.max_uri_handlers = 48;
     cfg.stack_size = 8192;
     cfg.recv_wait_timeout = 30;
     cfg.send_wait_timeout = 30;
@@ -556,6 +587,12 @@ void app_main(void)
     const esp_partition_t *run = esp_ota_get_running_partition();
     ESP_LOGI(TAG, "Pentadeck %s (ESP-IDF %s), running from %s @ 0x%lx",
              FW_VERSION, esp_app_get_description()->idf_ver, run->label, (unsigned long)run->address);
+    crash_guard();
+    {
+        static esp_timer_handle_t t;
+        const esp_timer_create_args_t a = { .callback = crash_clear, .name = "crash_clear" };
+        if (esp_timer_create(&a, &t) == ESP_OK) esp_timer_start_once(t, 60 * 1000000ULL);
+    }
 
     /* Only matters if the bootloader has rollback enabled; harmless otherwise. */
     esp_ota_img_states_t state;
