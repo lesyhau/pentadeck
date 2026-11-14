@@ -458,7 +458,7 @@ static void ledfx_task(void *arg)
                 music_update(&m);
                 spectrum_update(&m);
             }
-            for (int z = 0; z < 3; z++) zone_effect(z, s.led_zone[z], s.led_color[z], &pc, &lab, ms, s.viz_palette);
+            for (int z = 0; z < 3; z++) zone_effect(z, s.led_zone[z], settings_led_rgb(&s, z), &pc, &lab, ms, s.viz_palette);
         }
         leds_show(s_px, LED_COUNT, (uint8_t)(bright * 255 / 100));
     }

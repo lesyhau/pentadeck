@@ -64,7 +64,7 @@ export interface DeviceSettings {
   led_left?: string
   led_back?: string
   led_right?: string
-  /** Each LED zone's colour, '#rrggbb' (firmware 0.20+). */
+  /** Each LED zone's colour, '#rrggbb' (firmware 0.20+), or 'accent' to follow the accent (0.21.1+). */
   led_left_color?: string
   led_back_color?: string
   led_right_color?: string
@@ -145,6 +145,8 @@ export const CLAP_NAMES: Record<string, string> = {
   off: 'Nothing', leds: 'LEDs on or off', light: 'Screens on or off', mode: 'Next mode', dash: 'Back to the dashboard',
 }
 export const LED_DEFAULT_COLOUR = '#2a8cb2'
+/** A strip's colour that follows the accent, whatever it is (firmware 0.21.1+). */
+export const LED_FOLLOW_ACCENT = 'accent'
 /** The old single modes, as effects for the left strip, the back light and the right strip. */
 export const LED_PRESETS: Record<string, [string, string, string]> = {
   off: ['off', 'off', 'off'], glow: ['glow', 'glow', 'glow'], status: ['cpu', 'lab', 'gpu'], music: ['music', 'music', 'music'],

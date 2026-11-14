@@ -1,8 +1,8 @@
 import { useId, useState } from 'react'
 import {
-  Button, ButtonRow, Card, Field, Input, NoticeLine, Reveal, Segmented, Select, Slider, SwitchRow, cn, type Note,
+  Button, ButtonRow, Card, Field, Input, LinkIcon, NoticeLine, Reveal, Segmented, Select, Slider, SwitchRow, cn, type Note,
 } from '../ui'
-import { AUDIO_VIEW_HINTS, AUDIO_VIEW_NAMES, CLAP_NAMES, LED_EFFECT_HINTS, LED_EFFECT_NAMES, LED_OWN_COLOURS, PANEL_NAMES, SLOT_NAMES } from '../lib/api'
+import { AUDIO_VIEW_HINTS, AUDIO_VIEW_NAMES, CLAP_NAMES, LED_EFFECT_HINTS, LED_EFFECT_NAMES, LED_FOLLOW_ACCENT, LED_OWN_COLOURS, PANEL_NAMES, SLOT_NAMES } from '../lib/api'
 import { ACCENTS } from '../lib/accent'
 import type { Draft, DraftErrors } from '../lib/form'
 
@@ -193,16 +193,43 @@ const LED_COLOURS = [
 const SWATCH = 'relative h-9 w-9 shrink-0 rounded-full border border-line-strong transition-shadow duration-150 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgb(var(--pd-accent)/0.35)]'
 const PICKED = 'shadow-[0_0_0_2px_rgb(var(--pd-surface)),0_0_0_4px_rgb(var(--pd-accent))]'
 
-/** The presets, and "Custom" for any other colour (the system's colour picker). */
-function ColourPicker({ value, onChange, label, colours = LED_COLOURS }: {
+/** A link mark over a swatch that follows the accent, so it reads as "the accent", not one more colour. */
+function FollowMark() {
+  return (
+    <span className="absolute inset-0 grid place-items-center text-white [filter:drop-shadow(0_0_1.5px_rgb(0_0_0/0.8))]" aria-hidden="true">
+      <LinkIcon size={16} />
+    </span>
+  )
+}
+
+/** The presets, and "Custom" for any other colour (the system's colour picker). With `accent`, the
+ *  first swatch follows the accent: it changes when the accent does. */
+function ColourPicker({ value, onChange, label, colours = LED_COLOURS, accent }: {
   value: string
   onChange: (v: string) => void
   label: string
   colours?: { value: string; label: string }[]
+  /** The accent now ('#rrggbb'): offer to follow it. */
+  accent?: string
 }) {
-  const custom = !colours.some(c => c.value === value.toLowerCase())
+  const following = !!accent && value === LED_FOLLOW_ACCENT
+  const custom = !following && !colours.some(c => c.value === value.toLowerCase())
   return (
     <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2.5">
+      {accent && (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={following}
+          title="Accent: follows the accent colour"
+          aria-label="Accent: follows the accent colour"
+          className={cn(SWATCH, following && PICKED)}
+          style={{ background: accent }}
+          onClick={() => onChange(LED_FOLLOW_ACCENT)}
+        >
+          <FollowMark />
+        </button>
+      )}
       {colours.map(c => (
         <button
           key={c.value}
@@ -221,7 +248,7 @@ function ColourPicker({ value, onChange, label, colours = LED_COLOURS }: {
         className={cn(SWATCH, 'cursor-pointer overflow-hidden focus-within:shadow-[0_0_0_3px_rgb(var(--pd-accent)/0.35)]', custom && PICKED)}
         style={{ background: custom ? value : 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' }}
       >
-        <input type="color" aria-label="Custom colour" value={value} onChange={e => onChange(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+        <input type="color" aria-label="Custom colour" value={following ? accent : value} onChange={e => onChange(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
       </label>
     </div>
   )
@@ -237,7 +264,7 @@ export function LedSection({ draft, set, ledEffects, onTest, onResume, busy, not
   const [picking, setPicking] = useState<string | null>(null)
   const options = ledEffects.map(e => ({ value: e, label: LED_EFFECT_NAMES[e] ?? e }))
   return (
-    <Card title="LEDs" caption="An effect and a colour for each strip. The buttons stay lit unless all three are off.">
+    <Card title="LEDs" caption="An effect and a colour for each strip. A strip on the Accent colour follows the accent when you change it. The buttons stay lit unless all three are off.">
       <Field id={zonesId} group label="Effects">
         <ul className="divide-y divide-line rounded-lg border border-line">
           {LED_ZONES.map(({ key, color, label }) => {
@@ -260,18 +287,20 @@ export function LedSection({ draft, set, ledEffects, onTest, onResume, busy, not
                       title={ownColours ? 'This effect has its own colours' : 'Colour'}
                       onClick={() => setPicking(open ? null : key)}
                       className={cn(
-                        'h-11 w-11 shrink-0 rounded-lg border border-line-strong transition-shadow duration-150',
+                        'relative h-11 w-11 shrink-0 rounded-lg border border-line-strong transition-shadow duration-150',
                         'focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgb(var(--pd-accent)/0.35)]',
                         open && PICKED,
                         ownColours && 'cursor-not-allowed opacity-30',
                       )}
-                      style={{ background: draft[color] }}
-                    />
+                      style={{ background: draft[color] === LED_FOLLOW_ACCENT ? draft.accent : draft[color] }}
+                    >
+                      {draft[color] === LED_FOLLOW_ACCENT && !ownColours && <FollowMark />}
+                    </button>
                   </div>
                 </div>
                 <Reveal show={open}>
                   <div className="pb-1 pt-3">
-                    <ColourPicker label={`${label} colour`} value={draft[color]} onChange={v => set(color, v)} />
+                    <ColourPicker label={`${label} colour`} value={draft[color]} onChange={v => set(color, v)} accent={draft.accent} />
                   </div>
                 </Reveal>
               </li>
