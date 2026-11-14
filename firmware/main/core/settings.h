@@ -7,6 +7,9 @@
 #define TG_SOURCES  2
 #define TG_LAYOUT_N 5
 
+/* led_color: follow the accent (above 0xFFFFFF, so no colour can mean it) */
+#define LED_COLOR_ACCENT 0x01000000u
+
 typedef struct {
     char src_url[TG_SOURCES][128];   /* stats agents: [0] = PC, [1] = home lab */
     uint16_t poll_ms;                /* how often the agents are polled, 500..10000 */
@@ -57,7 +60,8 @@ typedef struct {
                                         1 and 2 = world_name[0] and [1]; "102" puts home in the middle */
     /* v12 */
     uint32_t led_color[3];           /* each LED zone's colour, 0xRRGGBB: what glow, breathe, wave, comet, sparkle
-                                        and pulse show, and the "all is well" colour of the meters */
+                                        and pulse show, and the "all is well" colour of the meters;
+                                        LED_COLOR_ACCENT: the accent, whatever it is ("accent" in JSON) */
     /* v13 */
     uint32_t accent;                 /* the screens' (and the web page's) accent, 0xRRGGBB; teal by default */
     char audio_view[12];             /* the AUDIO screen: one of settings.c's AUDIO_VIEWS (eq, vu, or a visual effect) */
@@ -67,6 +71,12 @@ typedef struct {
     char clap[8];                    /* what a double clap does: one of settings.c's CLAP_ACTIONS */
     bool noise_alert;                /* warn when the day's sound dose reaches 100 % (core/listen.c) */
 } tg_settings_t;
+
+/* LED zone z's colour as 0xRRGGBB, the accent's when the zone follows it */
+static inline uint32_t settings_led_rgb(const tg_settings_t *s, int z)
+{
+    return s->led_color[z] == LED_COLOR_ACCENT ? s->accent : s->led_color[z];
+}
 
 enum { VIZ_PAL_ACCENT, VIZ_PAL_RAINBOW, VIZ_PAL_FIRE, VIZ_PAL_COUNT };
 

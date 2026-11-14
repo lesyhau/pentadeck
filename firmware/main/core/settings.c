@@ -154,7 +154,7 @@ static void defaults(tg_settings_t *s)
     s->mic_stream = true;
     strcpy(s->audio_view_v12, "eq");
     strcpy(s->world_order, "102");     /* home in the middle */
-    for (int z = 0; z < 3; z++) s->led_color[z] = LED_TEAL;
+    for (int z = 0; z < 3; z++) s->led_color[z] = LED_COLOR_ACCENT;
     s->accent = LED_TEAL;
     strcpy(s->audio_view, "eq");
     s->viz_palette = VIZ_PAL_ACCENT;
@@ -197,7 +197,7 @@ static esp_err_t validate(const tg_settings_t *s, char *err, int err_len)
         if (!in_list(s->led_zone[z], LED_EFFECTS, COUNT(LED_EFFECTS))) FAIL("%s: unknown LED effect '%s'", LED_ZONE_KEYS[z], s->led_zone[z]);
     }
     for (int z = 0; z < 3; z++) {
-        if (s->led_color[z] > 0xFFFFFF) FAIL("%s must be #RRGGBB", LED_COLOR_KEYS[z]);
+        if (s->led_color[z] > 0xFFFFFF && s->led_color[z] != LED_COLOR_ACCENT) FAIL("%s must be #RRGGBB or accent", LED_COLOR_KEYS[z]);
     }
     if (!valid_world_order(s->world_order)) FAIL("world_order must hold 0, 1 and 2 once each");
     if (s->led_brightness > 100) FAIL("LED brightness is 0..100");
@@ -361,7 +361,8 @@ char *settings_to_json(void)
     cJSON_AddStringToObject(o, "led_mode", settings_led_preset_of(&s));   /* a preset name, or "custom" */
     for (int z = 0; z < 3; z++) {
         char hex[8];
-        snprintf(hex, sizeof hex, "#%06lx", (unsigned long)s.led_color[z]);
+        if (s.led_color[z] == LED_COLOR_ACCENT) strcpy(hex, "accent");
+        else snprintf(hex, sizeof hex, "#%06lx", (unsigned long)s.led_color[z]);
         cJSON_AddStringToObject(o, LED_ZONE_KEYS[z], s.led_zone[z]);
         cJSON_AddStringToObject(o, LED_COLOR_KEYS[z], hex);
     }
@@ -456,7 +457,9 @@ esp_err_t settings_from_json(const char *json, char *err, int err_len)
     for (int z = 0; z < 3; z++) {
         copy_str(s.led_zone[z], sizeof s.led_zone[z], cJSON_GetObjectItem(o, LED_ZONE_KEYS[z]));
         bool given;
-        uint32_t c = parse_hex(cJSON_GetObjectItem(o, LED_COLOR_KEYS[z]), &given);
+        const cJSON *cv = cJSON_GetObjectItem(o, LED_COLOR_KEYS[z]);
+        uint32_t c = cJSON_IsString(cv) && cv->valuestring && strcmp(cv->valuestring, "accent") == 0
+                     ? (given = true, LED_COLOR_ACCENT) : parse_hex(cv, &given);
         if (given) s.led_color[z] = c;
     }
     bool given;
